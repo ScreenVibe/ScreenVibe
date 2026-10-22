@@ -8,7 +8,7 @@ final class ToolEditorWindow {
         if window == nil {
             let w = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 760, height: 560),
                              styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
-            w.title = "UandI Tools"
+            w.title = "ScreenVibe Tools"
             w.contentView = NSHostingView(rootView: ToolEditorView())
             w.isReleasedWhenClosed = false
             w.level = NSWindow.Level(rawValue: NSWindow.Level.screenSaver.rawValue + 2)

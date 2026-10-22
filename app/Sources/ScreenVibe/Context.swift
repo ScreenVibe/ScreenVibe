@@ -8,7 +8,7 @@ struct FrontContext {
     var window = ""
     var document: String?
     var url: String?
-    /// A browser UandI may not ask yet. Asked once the markup closes, so the question is not hidden under it.
+    /// A browser ScreenVibe may not ask yet. Asked once the markup closes, so the question is not hidden under it.
     var browserToAsk: String?
 }
 
@@ -36,7 +36,7 @@ enum ContextGrab {
         """
     }
 
-    /// Must run before UandI comes to the front, while the user's app is still frontmost.
+    /// Must run before ScreenVibe comes to the front, while the user's app is still frontmost.
     static func grab() async -> FrontContext {
         guard let app = NSWorkspace.shared.frontmostApplication,
               app.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return FrontContext() }
@@ -45,7 +45,7 @@ enum ContextGrab {
         c.bundleID = app.bundleIdentifier ?? ""
         let pid = app.processIdentifier
 
-        if AXIsProcessTrusted(), ProcessInfo.processInfo.environment["UANDI_NO_AX"] == nil {
+        if AXIsProcessTrusted(), ProcessInfo.processInfo.environment["SCREENVIBE_NO_AX"] == nil {
             let ax = AXUIElementCreateApplication(pid)
             if let w = attribute(ax, kAXFocusedWindowAttribute) {
                 let win = w as! AXUIElement

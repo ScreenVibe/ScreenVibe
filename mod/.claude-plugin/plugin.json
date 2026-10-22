@@ -1,7 +1,7 @@
 {
-  "name": "uandi",
+  "name": "screenvibe",
   "version": "0.1.0",
-  "description": "Lets the UandI menubar app send screen markups into this session.",
+  "description": "Lets the ScreenVibe menubar app send screen markups into this session.",
   "author": {
     "name": "Hanaan Rosenthal"
   },

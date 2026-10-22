@@ -1,4 +1,4 @@
-# UandI
+# ScreenVibe
 
 Mark up any part of your screen and send it straight to a Claude Code session. No screenshot, no Preview, no copy and paste.
 
@@ -20,25 +20,25 @@ Needs macOS 14 or newer.
 You need the Xcode command line tools (`xcode-select --install`).
 
 ```
-git clone https://github.com/cryptohanaan/UandI.git
-cd UandI
+git clone https://github.com/cryptohanaan/ScreenVibe.git
+cd ScreenVibe
 ./build.sh
 ```
 
-That builds the menu bar app, installs it to `~/Applications/UandI.app` and starts it. It signs the app with your Apple developer certificate if you have one. Without one, macOS asks for the Screen Recording permission again after each rebuild.
+That builds the menu bar app, installs it to `~/Applications/ScreenVibe.app` and starts it. It signs the app with your Apple developer certificate if you have one. Without one, macOS asks for the Screen Recording permission again after each rebuild.
 
 Then add the Claude Code add-on:
 
 ```
-claude plugin marketplace add cryptohanaan/UandI
-claude plugin install uandi@uandi
+claude plugin marketplace add cryptohanaan/ScreenVibe
+claude plugin install screenvibe@screenvibe
 ```
 
-In sessions that are already open, run `/reload-plugins`. Each session with the add-on shows up in UandI's Send menu.
+In sessions that are already open, run `/reload-plugins`. Each session with the add-on shows up in ScreenVibe's Send menu.
 
 ## Use
 
-- Click **U&I** in the menu bar, or press ⌘⇧6. The screen freezes.
+- Click the **ScreenVibe** icon in the menu bar, or press ⌘⇧6. The screen freezes.
 - The whole screen starts as the picture. To send less, pick **Crop (K)** and drag a box, or drag its edges and corners. Hold Space and drag to move the box, with any tool.
 - Mark it with the tools: Remove, Wording, Button, Move, Copy+move, Pen, Note, Rect, Line, Arrow, Oval, or your own.
 - Pick a color under the tools to color the next marks, or the selected mark. Click it again to go back to the tool's color. The message names the color, so your note can say what it means.
@@ -59,17 +59,17 @@ Only Screen Recording is required. Without the others, the markup just carries l
 
 ## Privacy
 
-Everything stays on your Mac. Markups are saved in `~/.uandi/markups/` and read by your own Claude Code session. UandI itself sends nothing over the network. What the session does with a markup is up to Claude Code, like any prompt you type.
+Everything stays on your Mac. Markups are saved in `~/.screenvibe/markups/` and read by your own Claude Code session. ScreenVibe itself sends nothing over the network. What the session does with a markup is up to Claude Code, like any prompt you type.
 
 ## How it works
 
-The app and the add-on only share files in `~/.uandi/`:
+The app and the add-on only share files in `~/.screenvibe/`:
 
-1. Each Claude Code session with the add-on writes a small file to `~/.uandi/sessions/`, so the app can list it.
-2. On Send, the app writes the pictures and the text to that session's folder in `~/.uandi/inbox/`.
+1. Each Claude Code session with the add-on writes a small file to `~/.screenvibe/sessions/`, so the app can list it.
+2. On Send, the app writes the pictures and the text to that session's folder in `~/.screenvibe/inbox/`.
 3. The add-on checks its inbox and, when the session is idle, submits the markup as the next prompt.
 
-How to read a markup is in `~/.uandi/UandI-guide.md`, which the app rewrites whenever the tools change. The first markup sent to a chat asks Claude to read it; later ones only name it. Your tools are saved in `~/.uandi/tools.json`.
+How to read a markup is in `~/.screenvibe/ScreenVibe-guide.md`, which the app rewrites whenever the tools change. The first markup sent to a chat asks Claude to read it; later ones only name it. Your tools are saved in `~/.screenvibe/tools.json`.
 
 ## Make it yours
 
@@ -77,20 +77,20 @@ The code is small and plain. Where things live:
 
 | File | What it does |
 | --- | --- |
-| `app/Sources/UandI/main.swift` | Menu bar icon, ⌘⇧6, start of a markup |
-| `app/Sources/UandI/Overlay.swift` | The frozen screen, drawing, selecting, keys, the palettes' contents |
-| `app/Sources/UandI/Marks.swift` | How each mark looks, and the colors |
-| `app/Sources/UandI/Tools.swift` | The built-in tools and their meanings |
-| `app/Sources/UandI/Palette.swift` | The floating palettes |
-| `app/Sources/UandI/SendWindow.swift` | The Send window |
-| `app/Sources/UandI/Output.swift` | The pictures and the text a session receives |
-| `app/Sources/UandI/Guide.swift` | The guide Claude reads |
-| `app/Sources/UandI/Context.swift` | Front app, window, file and web address |
+| `app/Sources/ScreenVibe/main.swift` | Menu bar icon, ⌘⇧6, start of a markup |
+| `app/Sources/ScreenVibe/Overlay.swift` | The frozen screen, drawing, selecting, keys, the palettes' contents |
+| `app/Sources/ScreenVibe/Marks.swift` | How each mark looks, and the colors |
+| `app/Sources/ScreenVibe/Tools.swift` | The built-in tools and their meanings |
+| `app/Sources/ScreenVibe/Palette.swift` | The floating palettes |
+| `app/Sources/ScreenVibe/SendWindow.swift` | The Send window |
+| `app/Sources/ScreenVibe/Output.swift` | The pictures and the text a session receives |
+| `app/Sources/ScreenVibe/Guide.swift` | The guide Claude reads |
+| `app/Sources/ScreenVibe/Context.swift` | Front app, window, file and web address |
 | `mod/hooks/register.ts` | The Claude Code add-on |
 
 Ideas people might build: an MCP server so other AI apps can fetch markups, a Copy that works well in web chats, more tools, Windows or Linux versions.
 
-For checking the look without clicking: `UandI --demo <picture.png>` opens the overlay on a saved picture, with sample marks. `UandI --print-context` shows what UandI reads from the app in front after 3 seconds.
+For checking the look without clicking: `ScreenVibe --demo <picture.png>` opens the overlay on a saved picture, with sample marks. `ScreenVibe --print-context` shows what ScreenVibe reads from the app in front after 3 seconds.
 
 ## License
 

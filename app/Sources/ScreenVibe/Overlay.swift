@@ -1,6 +1,6 @@
 import AppKit
 
-/// A panel that takes the keyboard without making UandI the active app, so Esc and the tool keys always reach it.
+/// A panel that takes the keyboard without making ScreenVibe the active app, so Esc and the tool keys always reach it.
 final class OverlayWindow: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { true }
@@ -268,7 +268,7 @@ final class Canvas: NSView, NSTextFieldDelegate {
         background = NSImage(cgImage: frozen.image, size: frozen.screen.frame.size)
         super.init(frame: CGRect(origin: .zero, size: frozen.screen.frame.size))
         crop = bounds  // the whole screen, until Crop makes it smaller
-        cropping = true  // Crop is always the tool UandI opens with
+        cropping = true  // Crop is always the tool ScreenVibe opens with
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -361,7 +361,7 @@ final class Canvas: NSView, NSTextFieldDelegate {
         func tool(_ id: String) -> ToolDef? { tools.first { $0.id == id } }
         if let t = tool("remove") { var m = Mark(kind: .tool(t)); m.rect = CGRect(x: c.minX + 30, y: c.minY + 40, width: 260, height: 50); marks.append(m) }
         if let t = tool("wording") { var m = Mark(kind: .tool(t)); m.rect = CGRect(x: c.minX + 30, y: c.minY + 130, width: 140, height: 40); m.text = "Save changes"; marks.append(m) }
-        if let t = tool("button") { var m = Mark(kind: .tool(t)); m.rect = CGRect(x: c.minX + 220, y: c.minY + 130, width: 130, height: 44); m.text = ProcessInfo.processInfo.environment["UANDI_DEMO_LABEL"] ?? "Export"; marks.append(m) }
+        if let t = tool("button") { var m = Mark(kind: .tool(t)); m.rect = CGRect(x: c.minX + 220, y: c.minY + 130, width: 130, height: 44); m.text = ProcessInfo.processInfo.environment["SCREENVIBE_DEMO_LABEL"] ?? "Export"; marks.append(m) }
         if let t = tool("move") { var m = Mark(kind: .tool(t)); m.rect = CGRect(x: c.minX + 30, y: c.minY + 230, width: 110, height: 40); m.end = CGPoint(x: c.maxX - 90, y: c.minY + 250); marks.append(m) }
         if let t = tool("note") { var m = Mark(kind: .tool(t)); m.rect = CGRect(x: c.minX + 400, y: c.minY + 40, width: 0, height: 0); m.text = "Too much space up here"; marks.append(m) }
         let paints = Dictionary(uniqueKeysWithValues: Swatch.all.map { ($0.name, $0) })
@@ -372,9 +372,9 @@ final class Canvas: NSView, NSTextFieldDelegate {
         controller?.placePalettes()
         needsDisplay = true
         let env = ProcessInfo.processInfo.environment
-        if let n = env["UANDI_DEMO_NOTE"], let i = marks.firstIndex(where: { $0.tool?.id == "wording" }) { marks[i].extra = n }
-        if env["UANDI_DEMO_CROP"] != nil { setCrop() }
-        if let typed = env["UANDI_DEMO_TYPED"], let t = tools.first(where: { $0.shape == .text }) {
+        if let n = env["SCREENVIBE_DEMO_NOTE"], let i = marks.firstIndex(where: { $0.tool?.id == "wording" }) { marks[i].extra = n }
+        if env["SCREENVIBE_DEMO_CROP"] != nil { setCrop() }
+        if let typed = env["SCREENVIBE_DEMO_TYPED"], let t = tools.first(where: { $0.shape == .text }) {
             // Test only: a new note whose words are typed but not yet committed with Return.
             var m = Mark(kind: .tool(t))
             m.rect = CGRect(x: c.minX + 60, y: c.maxY - 60, width: 0, height: 0)
@@ -382,14 +382,14 @@ final class Canvas: NSView, NSTextFieldDelegate {
             openEditor(for: marks.count - 1, isNew: true)
             (editor?.field.currentEditor() as? NSTextView)?.insertText(typed, replacementRange: NSRange(location: 0, length: 0))
         }
-        if env["UANDI_DEMO_TARGET"] != nil, let i = marks.firstIndex(where: { $0.isBoxArrow }) {
+        if env["SCREENVIBE_DEMO_TARGET"] != nil, let i = marks.firstIndex(where: { $0.isBoxArrow }) {
             marks[i].targetSize = CGSize(width: marks[i].rect.width * 1.8, height: marks[i].rect.height * 2.2)
             selected = i
             self.tool = nil
         }
-        if let words = env["UANDI_DEMO_ASK"] ?? env["UANDI_DEMO_WORDS"], let i = marks.firstIndex(where: { $0.tool?.id == "wording" }) {
+        if let words = env["SCREENVIBE_DEMO_ASK"] ?? env["SCREENVIBE_DEMO_WORDS"], let i = marks.firstIndex(where: { $0.tool?.id == "wording" }) {
             marks[i].text = words
-            guard env["UANDI_DEMO_ASK"] != nil else { return }
+            guard env["SCREENVIBE_DEMO_ASK"] != nil else { return }
             openEditor(for: i, isNew: false)
             controlTextDidChange(Notification(name: NSControl.textDidChangeNotification))
         }

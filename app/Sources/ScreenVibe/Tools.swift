@@ -59,12 +59,12 @@ struct ToolDef: Codable, Identifiable, Equatable {
 
 final class ToolStore {
     static let shared = ToolStore()
-    static let didChange = Notification.Name("UandIToolsChanged")
+    static let didChange = Notification.Name("ScreenVibeToolsChanged")
 
     private(set) var tools: [ToolDef] = []
 
     private var url: URL {
-        let dir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".uandi")
+        let dir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".screenvibe")
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir.appendingPathComponent("tools.json")
     }

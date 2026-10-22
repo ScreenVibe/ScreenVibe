@@ -9,7 +9,7 @@ struct MarkupOutput {
 }
 
 enum Output {
-    static var root: URL { FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".uandi") }
+    static var root: URL { FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".screenvibe") }
 
     static func stamp() -> String {
         let f = DateFormatter()
@@ -111,8 +111,8 @@ enum Output {
         func box(_ r: CGRect) -> String { "\(pt(r.origin)) \(n(r.width))×\(n(r.height))" }
         var lines: [String] = []
         lines.append(briefed
-            ? "UandI markup (how to read it: \(Guide.url.path))."
-            : "UandI markup. Before acting, read the guide once: \(Guide.url.path). Later markups in this chat use the same format.")
+            ? "ScreenVibe markup (how to read it: \(Guide.url.path))."
+            : "ScreenVibe markup. Before acting, read the guide once: \(Guide.url.path). Later markups in this chat use the same format.")
         let c = frozen.context
         if !c.app.isEmpty { lines.append("App: \(c.app)\(c.bundleID.isEmpty ? "" : " (\(c.bundleID))").") }
         if !c.window.isEmpty { lines.append("Window: \(c.window)") }
@@ -175,7 +175,7 @@ enum Output {
     }
 }
 
-/// A Claude Code session that has the UandI add-on loaded.
+/// A Claude Code session that has the ScreenVibe add-on loaded.
 struct SessionInfo {
     let sessionId: String
     let label: String

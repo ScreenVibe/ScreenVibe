@@ -11,11 +11,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let b = statusItem.button {
             b.image = Self.menubarImage()
-            b.toolTip = "UandI: mark up the screen (⌘⇧6)"
+            b.toolTip = "ScreenVibe: mark up the screen (⌘⇧6)"
             b.target = self
             b.action = #selector(clicked)
             b.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
+        Self.moveFromUandI()
         registerHotKey()
         Guide.write()
         let args = CommandLine.arguments
@@ -42,7 +43,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         overlay = o
         o.show()
         o.canvas.loadDemo()
-        if ProcessInfo.processInfo.environment["UANDI_DEMO_SPACE"] != nil {
+        if ProcessInfo.processInfo.environment["SCREENVIBE_DEMO_SPACE"] != nil {
             // Test only: Space down, drag the box 100 points right, Space up.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 let w = o.window, v = o.canvas
@@ -71,17 +72,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 exit(0)
             }
         }
-        if ProcessInfo.processInfo.environment["UANDI_DEMO_SEND"] != nil {
+        if ProcessInfo.processInfo.environment["SCREENVIBE_DEMO_SEND"] != nil {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 o.openSend()
-                if let path = ProcessInfo.processInfo.environment["UANDI_DUMP_SEND"], let v = NSApp.keyWindow?.contentView,
+                if let path = ProcessInfo.processInfo.environment["SCREENVIBE_DUMP_SEND"], let v = NSApp.keyWindow?.contentView,
                    let rep = v.bitmapImageRepForCachingDisplay(in: v.bounds) {
                     v.cacheDisplay(in: v.bounds, to: rep)
                     try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
                 }
             }
         }
-        if let path = ProcessInfo.processInfo.environment["UANDI_DUMP_PALETTE"] {
+        if let path = ProcessInfo.processInfo.environment["SCREENVIBE_DUMP_PALETTE"] {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
                 if let v = o.toolsPalette.contentView, let rep = v.bitmapImageRepForCachingDisplay(in: v.bounds) {
                     v.cacheDisplay(in: v.bounds, to: rep)
@@ -89,14 +90,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
         }
-        if let dump = ProcessInfo.processInfo.environment["UANDI_DUMP"] {
+        if let dump = ProcessInfo.processInfo.environment["SCREENVIBE_DUMP"] {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
                 let v = o.canvas
                 if let rep = v.bitmapImageRepForCachingDisplay(in: v.bounds) {
                     v.cacheDisplay(in: v.bounds, to: rep)
                     try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: dump))
                 }
-                if ProcessInfo.processInfo.environment["UANDI_DEMO_COPY"] != nil { o.copyMarkup() }
+                if ProcessInfo.processInfo.environment["SCREENVIBE_DEMO_COPY"] != nil { o.copyMarkup() }
             }
         }
     }
@@ -125,14 +126,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 NSWorkspace.shared.open(dir)
             })
             m.addItem(.separator())
-            m.addItem(ClosureMenuItem(title: "About UandI") {
+            m.addItem(ClosureMenuItem(title: "About ScreenVibe") {
                 let credit = NSAttributedString(string: "Created by Vibe Coding prodigy Hanaan",
                     attributes: [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.labelColor,
                                  .paragraphStyle: { let p = NSMutableParagraphStyle(); p.alignment = .center; return p }()])
                 NSApp.activate(ignoringOtherApps: true)
                 NSApp.orderFrontStandardAboutPanel(options: [.credits: credit])
             })
-            m.addItem(ClosureMenuItem(title: "Quit UandI") { NSApp.terminate(nil) })
+            m.addItem(ClosureMenuItem(title: "Quit ScreenVibe") { NSApp.terminate(nil) })
             statusItem.menu = m
             statusItem.button?.performClick(nil)
             statusItem.menu = nil
@@ -165,14 +166,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func askForPermission() {
         NSApp.activate(ignoringOtherApps: true)
         let a = NSAlert()
-        a.messageText = "UandI needs permission to see the screen."
-        a.informativeText = "Turn on UandI in System Settings, under Privacy & Security, Screen & System Audio Recording. Then click the UandI icon in the menu bar again."
+        a.messageText = "ScreenVibe needs permission to see the screen."
+        a.informativeText = "Turn on ScreenVibe in System Settings, under Privacy & Security, Screen & System Audio Recording. Then click the ScreenVibe icon in the menu bar again."
         a.addButton(withTitle: "Open System Settings")
         a.addButton(withTitle: "Cancel")
         if a.runModal() == .alertFirstButtonReturn,
            let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
             NSWorkspace.shared.open(url)
         }
+    }
+
+    /// ScreenVibe was called UandI. Carries over its folder (tools, markups) and its settings, once.
+    static func moveFromUandI() {
+        let fm = FileManager.default, home = fm.homeDirectoryForCurrentUser
+        let old = home.appendingPathComponent(".uandi"), new = home.appendingPathComponent(".screenvibe")
+        if fm.fileExists(atPath: old.path), !fm.fileExists(atPath: new.path) { try? fm.moveItem(at: old, to: new) }
+        let d = UserDefaults.standard
+        guard !d.bool(forKey: "movedFromUandI"), let was = UserDefaults(suiteName: "com.slsuite.uandi") else { return }
+        for (k, v) in was.dictionaryRepresentation() where d.object(forKey: k) == nil
+            && ["tools.", "actions.", "lastSession", "askedAccessibility"].contains(where: { k.hasPrefix($0) }) {
+            d.set(v, forKey: k)
+        }
+        d.set(true, forKey: "movedFromUandI")
     }
 
     /// The app icon from icon.svg (a dashed screen area with a pointer), cut to its art and drawn as a template image

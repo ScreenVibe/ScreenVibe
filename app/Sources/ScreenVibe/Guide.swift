@@ -2,7 +2,7 @@ import AppKit
 
 /// The guide Claude reads once per chat, so each markup can stay short. Rewritten whenever the tools change.
 enum Guide {
-    static var url: URL { Output.root.appendingPathComponent("UandI-guide.md") }
+    static var url: URL { Output.root.appendingPathComponent("ScreenVibe-guide.md") }
 
     static func write() {
         try? FileManager.default.createDirectory(at: Output.root, withIntermediateDirectories: true)
@@ -11,15 +11,15 @@ enum Guide {
 
     static func text() -> String {
         var s = """
-        # How to read a UandI markup
+        # How to read a ScreenVibe markup
 
-        UandI is a menu bar app. The user freezes the screen, drags a box around part of it, marks it up with tools, and sends it to this chat. Each markup asks you to change the UI shown in the picture.
+        ScreenVibe is a menu bar app. The user freezes the screen, drags a box around part of it, marks it up with tools, and sends it to this chat. Each markup asks you to change the UI shown in the picture.
 
         ## What each markup holds
 
         - **Marked picture**: the boxed area with the marks drawn on it. Each mark has a numbered circle.
         - **Clean picture**: the same area with no marks, so you can see what is under them.
-        - **App, Window, URL, Document**: what was in front when the screen froze: the app, its window title, the web address when it is a browser, and the open file when the app reports one. Each appears only when UandI could tell.
+        - **App, Window, URL, Document**: what was in front when the screen froze: the app, its window title, the web address when it is a browser, and the open file when the app reports one. Each appears only when ScreenVibe could tell.
         - **Under the picture**: the app under the picture, when it is not the front app.
         - **Note**: the user's note about the whole markup, when there is one.
         - **Numbered lines**: one for each mark, matching the numbers in the marked picture.
@@ -34,7 +34,7 @@ enum Guide {
         - A color after the name, as in `4. Pen, green.`, is one the user picked for that mark. The tool's meaning stays the same; the note says what the color means, such as "green = keep".
         - `→` points to where a Move or Copy+move goes. When the size there differs from the area's size, the piece should take the new size.
         - `Note:` at the end of a line is the user's own note on that mark. It adds to what the tool means.
-        - "Words there" is text UandI read from the clean picture inside the mark. Use it to find the element in the code. It can contain small reading mistakes.
+        - "Words there" is text ScreenVibe read from the clean picture inside the mark. Use it to find the element in the code. It can contain small reading mistakes.
 
         ## The tools
 

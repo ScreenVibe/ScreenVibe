@@ -47,7 +47,7 @@ enum Capture {
         return Frozen(screen: screen, image: image, scale: scale, windows: windowList(), context: context)
     }
 
-    /// Layer-0 windows front to back: another app's (`pid`), or every app's but UandI's.
+    /// Layer-0 windows front to back: another app's (`pid`), or every app's but ScreenVibe's.
     static func windowList(pid: pid_t? = nil) -> [WindowInfo] {
         let me = ProcessInfo.processInfo.processIdentifier
         guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)

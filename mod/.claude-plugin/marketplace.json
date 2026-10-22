@@ -1,5 +1,0 @@
-{
-  "name": "uandi-local",
-  "owner": { "name": "Hanaan Rosenthal" },
-  "plugins": [{ "name": "uandi", "source": "./" }]
-}

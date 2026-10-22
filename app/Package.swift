@@ -2,9 +2,9 @@
 import PackageDescription
 
 let package = Package(
-    name: "UandI",
+    name: "ScreenVibe",
     platforms: [.macOS(.v14)],
     targets: [
-        .executableTarget(name: "UandI", path: "Sources/UandI")
+        .executableTarget(name: "ScreenVibe", path: "Sources/ScreenVibe")
     ]
 )
