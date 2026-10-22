@@ -13,6 +13,7 @@ struct Mark {
     var end: CGPoint = .zero          // arrow end, or where a box+arrow points
     var points: [CGPoint] = []        // pen
     var text: String = ""
+    var targetSize: CGSize?           // where a box+arrow points, once sized on its own; else the source's size
 
     var tool: ToolDef? {
         if case .tool(let t) = kind { return t }
@@ -48,8 +49,11 @@ struct Mark {
 
     /// The ghost box a box+arrow mark leaves where it points.
     var target: CGRect {
-        CGRect(x: end.x - rect.width / 2, y: end.y - rect.height / 2, width: rect.width, height: rect.height)
+        let sz = targetSize ?? rect.size
+        return CGRect(x: end.x - sz.width / 2, y: end.y - sz.height / 2, width: sz.width, height: sz.height)
     }
+
+    var isBoxArrow: Bool { tool?.shape == .boxArrow }
 
     func hit(_ p: CGPoint) -> Bool {
         if case .tool(let t) = kind, t.shape == .boxArrow, target.insetBy(dx: -4, dy: -4).contains(p) { return true }
@@ -65,6 +69,11 @@ struct Mark {
 }
 
 extension CGRect {
+    /// Top-left, top-right, bottom-left, bottom-right (flipped coordinates).
+    var corners: [CGPoint] {
+        [CGPoint(x: minX, y: minY), CGPoint(x: maxX, y: minY), CGPoint(x: minX, y: maxY), CGPoint(x: maxX, y: maxY)]
+    }
+
     init(p1: CGPoint, p2: CGPoint) {
         self.init(x: min(p1.x, p2.x), y: min(p1.y, p2.y), width: abs(p1.x - p2.x), height: abs(p1.y - p2.y))
     }
@@ -206,7 +215,7 @@ enum MarkDrawing {
             let a = m.area
             pts = [CGPoint(x: a.minX, y: a.minY), CGPoint(x: a.maxX, y: a.minY),
                    CGPoint(x: a.minX, y: a.maxY), CGPoint(x: a.maxX, y: a.maxY)]
-            if let t = m.tool, t.shape == .boxArrow { pts.append(m.end) }
+            if m.isBoxArrow, m.end != .zero { pts += m.target.corners }
         }
         for p in pts {
             let r = CGRect(x: p.x - 4, y: p.y - 4, width: 8, height: 8)

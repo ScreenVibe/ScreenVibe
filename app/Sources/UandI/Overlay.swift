@@ -223,7 +223,9 @@ final class Canvas: NSView, NSTextFieldDelegate {
         case drawing(Mark, CGPoint)
         case moving(Int, CGPoint)
         case resizing(Int, corner: Int)
+        case resizingTarget(Int, corner: Int)
         case movingEnd(Int)
+        case movingTarget(Int, CGPoint)
         case resizingCrop(handle: Int)
         case marquee(CGPoint)
     }
@@ -277,6 +279,11 @@ final class Canvas: NSView, NSTextFieldDelegate {
         controller?.placePalettes()
         needsDisplay = true
         let env = ProcessInfo.processInfo.environment
+        if env["UANDI_DEMO_TARGET"] != nil, let i = marks.firstIndex(where: { $0.isBoxArrow }) {
+            marks[i].targetSize = CGSize(width: marks[i].rect.width * 1.8, height: marks[i].rect.height * 2.2)
+            selected = i
+            self.tool = nil
+        }
         if let words = env["UANDI_DEMO_ASK"] ?? env["UANDI_DEMO_WORDS"], let i = marks.firstIndex(where: { $0.tool?.id == "wording" }) {
             marks[i].text = words
             guard env["UANDI_DEMO_ASK"] != nil else { return }
@@ -389,14 +396,25 @@ final class Canvas: NSView, NSTextFieldDelegate {
     private func selectDown(at p: CGPoint, crop c: CGRect, clicks: Int) {
         if let s = selected, s < marks.count {
             let m = marks[s]
-            if let t = m.tool, t.shape == .boxArrow, near(p, m.end) { pushUndo(); drag = .movingEnd(s); return }
+            if m.isBoxArrow, let k = m.target.corners.firstIndex(where: { near(p, $0) }) {
+                pushUndo()
+                marks[s].targetSize = m.target.size
+                drag = .resizingTarget(s, corner: k)
+                return
+            }
+            if m.isBoxArrow, near(p, m.end) { pushUndo(); drag = .movingEnd(s); return }
             if let t = m.tool, t.shape == .arrow {
                 if near(p, m.end) { pushUndo(); drag = .movingEnd(s); return }
             } else if m.tool?.shape != .pen && m.tool?.shape != .text {
                 let a = m.area
                 let corners = [CGPoint(x: a.minX, y: a.minY), CGPoint(x: a.maxX, y: a.minY),
                                CGPoint(x: a.minX, y: a.maxY), CGPoint(x: a.maxX, y: a.maxY)]
-                if let k = corners.firstIndex(where: { near(p, $0) }) { pushUndo(); drag = .resizing(s, corner: k); return }
+                if let k = corners.firstIndex(where: { near(p, $0) }) {
+                    pushUndo()
+                    if m.isBoxArrow { marks[s].targetSize = m.target.size }  // the destination keeps its own size
+                    drag = .resizing(s, corner: k)
+                    return
+                }
             }
         }
         if let k = cropHandles(c).firstIndex(where: { near(p, $0) }) {
@@ -409,6 +427,9 @@ final class Canvas: NSView, NSTextFieldDelegate {
             pixelSelection = nil
             if clicks == 2, marks[i].tool?.ask != nil {
                 openEditor(for: i, isNew: false)
+            } else if marks[i].isBoxArrow, !marks[i].rect.insetBy(dx: -6, dy: -6).contains(p), marks[i].target.contains(p) {
+                pushUndo()
+                drag = .movingTarget(i, p)  // dragging the destination moves only the destination
             } else {
                 pushUndo()
                 drag = .moving(i, p)
@@ -446,6 +467,17 @@ final class Canvas: NSView, NSTextFieldDelegate {
             drag = .resizing(i, corner: marks[i].rect.cornerIndex(of: p))
         case .movingEnd(let i):
             marks[i].end = p
+        case .movingTarget(let i, let last):
+            marks[i].end = CGPoint(x: marks[i].end.x + p.x - last.x, y: marks[i].end.y + p.y - last.y)
+            drag = .movingTarget(i, p)
+        case .resizingTarget(let i, let corner):
+            let a = marks[i].target
+            let fixed = [CGPoint(x: a.maxX, y: a.maxY), CGPoint(x: a.minX, y: a.maxY),
+                         CGPoint(x: a.maxX, y: a.minY), CGPoint(x: a.minX, y: a.minY)][corner]
+            let r = CGRect(p1: fixed, p2: p)
+            marks[i].targetSize = r.size
+            marks[i].end = CGPoint(x: r.midX, y: r.midY)
+            drag = .resizingTarget(i, corner: r.cornerIndex(of: p))
         case .resizingCrop(let h):
             guard var c = crop else { return }
             var minX = c.minX, maxX = c.maxX, minY = c.minY, maxY = c.maxY

@@ -117,6 +117,10 @@ enum Output {
                     line += " The arrow goes from \(n(m.start.x - crop.minX)),\(n(m.start.y - crop.minY)) to \(n(m.end.x - crop.minX)),\(n(m.end.y - crop.minY))."
                 case .boxArrow:
                     line += " The area is \(at(m.rect)). The arrow points to the area \(at(m.target))."
+                    let a = m.rect.size, b = m.target.size
+                    if abs(a.width - b.width) > 2 || abs(a.height - b.height) > 2 {
+                        line += " It changes size there, from \(n(a.width))×\(n(a.height)) to \(n(b.width))×\(n(b.height))."
+                    }
                 case .text:
                     line += " The note sits at \(n(m.rect.minX - crop.minX)),\(n(m.rect.minY - crop.minY))."
                 default:
