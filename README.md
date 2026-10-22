@@ -8,16 +8,16 @@ It is free and open source (MIT). It was built for one person's way of working; 
 
 ## What it works with
 
-- **Claude Code in the terminal.** This is what it is built and tested with.
-- Claude Code in the desktop app or an IDE extension should work too, as long as the session runs on your Mac. Not tested yet.
+- **Claude Code in the terminal**, and **local Code sessions in the Claude desktop app**. Both tested.
+- Not yet: Claude Code in VS Code or JetBrains. The add-on doesn't start there yet.
 - Sessions that run in the cloud (claude.ai/code on the web) can't receive markups: they can't see your Mac's files.
 - Other AI apps: **Copy** puts the marked picture on the clipboard, so you can paste it anywhere. The words that come with it are written for Claude Code and point to files on your Mac.
 
-Needs macOS 14 or newer.
+Needs macOS 14 or newer, and Claude Code 2.1.305 or newer (the add-on uses Claude Code's plugin hooks, which are new).
 
 ## Install
 
-You need the Xcode command line tools (`xcode-select --install`).
+ScreenVibe is built from source; there is no download yet. You need the Xcode command line tools, version 15.3 or newer (`xcode-select --install`).
 
 ```
 git clone https://github.com/cryptohanaan/ScreenVibe.git
@@ -25,7 +25,9 @@ cd ScreenVibe
 ./build.sh
 ```
 
-That builds the menu bar app, installs it to `~/Applications/ScreenVibe.app` and starts it. It signs the app with your Apple developer certificate if you have one. Without one, macOS asks for the Screen Recording permission again after each rebuild.
+That builds the menu bar app, installs it to `~/Applications/ScreenVibe.app` and starts it. It signs the app with your Apple developer certificate if you have one. Without one, each rebuild looks like a new app to macOS: the switches in System Settings still look on but no longer apply. Then select ScreenVibe in Screen & System Audio Recording (and Accessibility), remove it with −, and add it again.
+
+ScreenVibe doesn't start by itself after a restart. To have it start, add it in System Settings, General, Login Items.
 
 Then add the Claude Code add-on:
 
@@ -34,7 +36,13 @@ claude plugin marketplace add cryptohanaan/ScreenVibe
 claude plugin install screenvibe@screenvibe
 ```
 
-In sessions that are already open, run `/reload-plugins`. Each session with the add-on shows up in ScreenVibe's Send menu.
+In sessions that are already open, run `/reload-plugins`. Each session with the add-on shows up in ScreenVibe's Send menu. In the Claude desktop app, start a new local Code session.
+
+A markup points Claude at pictures in `~/.screenvibe`, outside your project, so Claude Code asks before reading them. To let it read them without asking, add the folder to `~/.claude/settings.json`, with your own user name:
+
+```
+{ "permissions": { "additionalDirectories": ["/Users/YOUR-NAME/.screenvibe"] } }
+```
 
 ## Use
 

@@ -110,8 +110,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return noErr
         }, 1, &spec, nil, nil)
         var ref: EventHotKeyRef?
-        RegisterEventHotKey(UInt32(kVK_ANSI_6), UInt32(cmdKey | shiftKey), EventHotKeyID(signature: OSType(0x55414E44), id: 1),
-                            GetApplicationEventTarget(), 0, &ref)
+        let status = RegisterEventHotKey(UInt32(kVK_ANSI_6), UInt32(cmdKey | shiftKey), EventHotKeyID(signature: OSType(0x53564942), id: 1),
+                                         GetApplicationEventTarget(), 0, &ref)
+        // Another app holds ⌘⇧6: say so in the icon's tooltip, since the menu still works.
+        if status != noErr { statusItem.button?.toolTip = "ScreenVibe: mark up the screen. ⌘⇧6 is taken by another app." }
     }
 
     @objc private func clicked() {
@@ -167,7 +169,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
         let a = NSAlert()
         a.messageText = "ScreenVibe needs permission to see the screen."
-        a.informativeText = "Turn on ScreenVibe in System Settings, under Privacy & Security, Screen & System Audio Recording. Then click the ScreenVibe icon in the menu bar again."
+        a.informativeText = "Turn on ScreenVibe in System Settings, under Privacy & Security, Screen & System Audio Recording. Then quit ScreenVibe from its menu bar icon and open it again: macOS applies the permission only after a restart."
         a.addButton(withTitle: "Open System Settings")
         a.addButton(withTitle: "Cancel")
         if a.runModal() == .alertFirstButtonReturn,

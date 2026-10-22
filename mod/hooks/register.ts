@@ -21,7 +21,11 @@ export const register: Register = on => {
     const root = `${home}/.screenvibe`
     const inbox = `${root}/inbox/${sessionId}`
     const card = `${root}/sessions/${sessionId}.json`
-    await $.process.run(['mkdir', '-p', `${root}/sessions`, inbox])
+    const made = await $.process.run(['mkdir', '-p', `${root}/sessions`, inbox]).then(() => true, () => false)
+    if (!made) {
+      $.ui.toast('ScreenVibe could not create its folder in ~/.screenvibe')
+      return result
+    }
 
     const repo = await $.session.repo().catch(() => null)
     const folder = e.cwd.split('/').filter(Boolean).pop() ?? e.cwd

@@ -13,7 +13,8 @@ enum Output {
 
     static func stamp() -> String {
         let f = DateFormatter()
-        f.dateFormat = "yyyy-MM-dd_HHmmss"
+        f.locale = Locale(identifier: "en_US_POSIX")   // the same digits on every calendar
+        f.dateFormat = "yyyy-MM-dd_HHmmss.SSS"           // two sends in one second stay apart
         return f.string(from: Date())
     }
 
@@ -83,6 +84,7 @@ enum Output {
         let req = VNRecognizeTextRequest()
         req.recognitionLevel = .accurate
         req.usesLanguageCorrection = true
+        req.automaticallyDetectsLanguage = true   // not only English
         try? VNImageRequestHandler(cgImage: clean).perform([req])
         let w = CGFloat(clean.width) / scale, h = CGFloat(clean.height) / scale
         let found: [(String, CGPoint)] = (req.results ?? []).compactMap { r in
