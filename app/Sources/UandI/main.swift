@@ -42,6 +42,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         overlay = o
         o.show()
         o.canvas.loadDemo()
+        if ProcessInfo.processInfo.environment["UANDI_DEMO_SPACE"] != nil {
+            // Test only: Space down, drag the box 100 points right, Space up.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                let w = o.window, v = o.canvas
+                func ev(_ t: NSEvent.EventType, _ p: CGPoint) -> NSEvent {
+                    NSEvent.mouseEvent(with: t, location: v.convert(p, to: nil), modifierFlags: [], timestamp: 0,
+                                       windowNumber: w.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
+                }
+                func key(_ t: NSEvent.EventType) -> NSEvent {
+                    NSEvent.keyEvent(with: t, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: w.windowNumber,
+                                     context: nil, characters: " ", charactersIgnoringModifiers: " ", isARepeat: false, keyCode: 49)!
+                }
+                let before = v.crop!
+                let c = CGPoint(x: before.midX, y: before.midY)
+                w.sendEvent(key(.keyDown))
+                w.sendEvent(ev(.leftMouseDown, c))
+                w.sendEvent(ev(.leftMouseDragged, CGPoint(x: c.x + 100, y: c.y)))
+                w.sendEvent(ev(.leftMouseUp, CGPoint(x: c.x + 100, y: c.y)))
+                w.sendEvent(key(.keyUp))
+                print("key=\(w.isKeyWindow) responder=\(w.firstResponder === v) before=\(before.origin) after=\(v.crop!.origin)")
+                let n = v.marks.count
+                v.setTool(ToolStore.shared.tools.first { $0.id == "remove" })
+                w.sendEvent(ev(.leftMouseDown, CGPoint(x: c.x, y: c.y)))
+                w.sendEvent(ev(.leftMouseDragged, CGPoint(x: c.x + 80, y: c.y + 40)))
+                w.sendEvent(ev(.leftMouseUp, CGPoint(x: c.x + 80, y: c.y + 40)))
+                print("marks \(n)->\(v.marks.count) tool=\(v.tool?.name ?? "Select") cropping=\(v.cropping)")
+                exit(0)
+            }
+        }
         if ProcessInfo.processInfo.environment["UANDI_DEMO_SEND"] != nil {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 o.openSend()

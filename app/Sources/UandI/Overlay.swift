@@ -248,7 +248,7 @@ final class Canvas: NSView, NSTextFieldDelegate {
         background = NSImage(cgImage: frozen.image, size: frozen.screen.frame.size)
         super.init(frame: CGRect(origin: .zero, size: frozen.screen.frame.size))
         crop = bounds  // the whole screen, until Crop makes it smaller
-        tool = ToolStore.shared.tools.first
+        cropping = true  // Crop is always the tool UandI opens with
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -263,7 +263,38 @@ final class Canvas: NSView, NSTextFieldDelegate {
                                        owner: self))
     }
 
-    override func cursorUpdate(with event: NSEvent) { NSCursor.crosshair.set() }
+    override func cursorUpdate(with event: NSEvent) { updateCursor(at: point(event)) }
+
+    /// A finished mark: back to Select with the new mark selected, ready to adjust.
+    private func finishMark(_ i: Int) {
+        tool = nil
+        cropping = false
+        selected = i
+        controller?.refreshTools()
+    }
+
+    /// Resize over a handle, move over a mark, a hand over a note button or while Space is down; else the crosshair.
+    private func updateCursor(at p: CGPoint) {
+        if spaceDown { NSCursor.openHand.set(); return }
+        if aiming != nil { NSCursor.crosshair.set(); return }
+        if marks.indices.contains(where: { near(p, MarkDrawing.badgePoint(marks[$0]), 12) }) { NSCursor.pointingHand.set(); return }
+        if cropping, let c = crop {
+            if let k = cropHandles(c).firstIndex(where: { near(p, $0) }) { Cursors.resize(handle: k).set() }
+            else { NSCursor.crosshair.set() }
+            return
+        }
+        guard tool == nil else { NSCursor.crosshair.set(); return }
+        if let s = selected, s < marks.count {
+            let m = marks[s]
+            if m.isBoxArrow, let k = m.target.corners.firstIndex(where: { near(p, $0) }) { Cursors.resize(handle: k).set(); return }
+            if m.tool?.shape == .arrow || m.isBoxArrow, near(p, m.end) { Cursors.move.set(); return }
+            if m.tool?.shape != .pen, m.tool?.shape != .text, m.tool?.shape != .arrow,
+               let k = m.area.corners.firstIndex(where: { near(p, $0) }) { Cursors.resize(handle: k).set(); return }
+        }
+        if marks.contains(where: { $0.hit(p) }) { Cursors.move.set(); return }
+        NSCursor.crosshair.set()
+    }
+
 
     func setCrop() {
         commitEditor()
@@ -397,6 +428,11 @@ final class Canvas: NSView, NSTextFieldDelegate {
             marks[i].end = point(event)
             needsDisplay = true
         }
+        updateCursor(at: point(event))
+    }
+
+    private var mouse: CGPoint {
+        window.map { convert($0.mouseLocationOutsideOfEventStream, from: nil) } ?? .zero
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -405,6 +441,7 @@ final class Canvas: NSView, NSTextFieldDelegate {
         if let i = aiming {
             marks[i].end = p
             aiming = nil
+            finishMark(i)
             needsDisplay = true
             return
         }
@@ -441,6 +478,7 @@ final class Canvas: NSView, NSTextFieldDelegate {
             m.rect = CGRect(origin: p, size: .zero)
             pushUndo()
             marks.append(m)
+            finishMark(marks.count - 1)
             openEditor(for: marks.count - 1, isNew: true)
             needsDisplay = true
             return
@@ -560,7 +598,7 @@ final class Canvas: NSView, NSTextFieldDelegate {
             if let c = crop, c.width < 8 || c.height < 8 { undo() }
             controller?.placePalettes()
         case .movingCrop:
-            (spaceDown ? NSCursor.openHand : NSCursor.crosshair).set()
+            break
         case .drawing(let m, _):
             guard let t = m.tool else { break }
             let a = m.area
@@ -570,8 +608,9 @@ final class Canvas: NSView, NSTextFieldDelegate {
             if t.shape == .boxArrow {
                 aiming = marks.count - 1
                 marks[marks.count - 1].end = point(event)
-            } else if t.ask != nil {
-                openEditor(for: marks.count - 1, isNew: true)
+            } else {
+                finishMark(marks.count - 1)
+                if t.ask != nil { openEditor(for: marks.count - 1, isNew: true) }
             }
         case .marquee:
             if let r = pixelSelection, r.width < 4 || r.height < 4 { pixelSelection = nil }
@@ -579,6 +618,7 @@ final class Canvas: NSView, NSTextFieldDelegate {
             if let c = crop, c.width < 8 || c.height < 8 { undo() }
         default: break
         }
+        updateCursor(at: point(event))
         needsDisplay = true
     }
 
@@ -587,7 +627,7 @@ final class Canvas: NSView, NSTextFieldDelegate {
     override func keyUp(with event: NSEvent) {
         if event.keyCode == 49 {
             spaceDown = false
-            if case .movingCrop = drag {} else { NSCursor.crosshair.set() }
+            if case .movingCrop = drag {} else { updateCursor(at: mouse) }
             return
         }
         super.keyUp(with: event)
@@ -734,9 +774,10 @@ final class Canvas: NSView, NSTextFieldDelegate {
             if e.isNote {
                 if !cancel { pushUndo(); marks[e.index].extra = text }
             } else if cancel {
-                if e.isNew { marks.remove(at: e.index) }
+                if e.isNew { marks.remove(at: e.index); selected = nil }
             } else if text.isEmpty && marks[e.index].tool?.shape == .text {
                 marks.remove(at: e.index)
+                selected = nil
             } else {
                 marks[e.index].text = text
             }
@@ -841,5 +882,54 @@ enum Toast {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) {
             NSAnimationContext.runAnimationGroup({ $0.duration = 0.3; win.animator().alphaValue = 0 }) { win.orderOut(nil) }
         }
+    }
+}
+
+/// Cursors macOS 14 does not offer as public API, drawn from SF Symbols.
+enum Cursors {
+    static let move = symbol("arrow.up.and.down.and.arrow.left.and.right")
+
+    /// Handles: 0-3 corners (tl, tr, bl, br), 4-7 edges (top, bottom, left, right).
+    static func resize(handle k: Int) -> NSCursor {
+        if #available(macOS 15.0, *) {
+            let pos: [NSCursor.FrameResizePosition] = [.topLeft, .topRight, .bottomLeft, .bottomRight, .top, .bottom, .left, .right]
+            return NSCursor.frameResize(position: pos[k], directions: .all)
+        }
+        switch k {
+        case 0, 3: return diagonalDown
+        case 1, 2: return diagonalUp
+        case 4, 5: return .resizeUpDown
+        default: return .resizeLeftRight
+        }
+    }
+
+    private static let diagonalDown = symbol("arrow.up.left.and.arrow.down.right")
+    private static let diagonalUp = symbol("arrow.up.right.and.arrow.down.left")
+
+    /// A black symbol with a white edge, centered on the hot spot.
+    private static func symbol(_ name: String) -> NSCursor {
+        let size = CGSize(width: 24, height: 24)
+        let conf = NSImage.SymbolConfiguration(pointSize: 15, weight: .bold)
+        guard let base = NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(conf)
+        else { return .crosshair }
+        func tinted(_ c: NSColor) -> NSImage {
+            let img = NSImage(size: base.size, flipped: false) { r in
+                base.draw(in: r)
+                c.set()
+                r.fill(using: .sourceAtop)
+                return true
+            }
+            return img
+        }
+        let white = tinted(.white), black = tinted(.black)
+        let image = NSImage(size: size, flipped: false) { r in
+            let o = CGPoint(x: (r.width - base.size.width) / 2, y: (r.height - base.size.height) / 2)
+            for dx in [-1.2, 0, 1.2] { for dy in [-1.2, 0, 1.2] where dx != 0 || dy != 0 {
+                white.draw(at: CGPoint(x: o.x + dx, y: o.y + dy), from: .zero, operation: .sourceOver, fraction: 1)
+            } }
+            black.draw(at: o, from: .zero, operation: .sourceOver, fraction: 1)
+            return true
+        }
+        return NSCursor(image: image, hotSpot: CGPoint(x: size.width / 2, y: size.height / 2))
     }
 }
