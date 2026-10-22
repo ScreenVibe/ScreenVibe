@@ -1,6 +1,7 @@
 import AppKit
 
-final class OverlayWindow: NSWindow {
+/// A panel that takes the keyboard without making UandI the active app, so Esc and the tool keys always reach it.
+final class OverlayWindow: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { true }
 }
@@ -18,7 +19,10 @@ final class OverlayController {
 
     init(frozen: Frozen) {
         self.frozen = frozen
-        window = OverlayWindow(contentRect: frozen.screen.frame, styleMask: .borderless, backing: .buffered, defer: false)
+        window = OverlayWindow(contentRect: frozen.screen.frame, styleMask: [.borderless, .nonactivatingPanel],
+                               backing: .buffered, defer: false)
+        window.isFloatingPanel = true
+        window.hidesOnDeactivate = false
         window.level = .screenSaver
         window.isOpaque = true
         window.hasShadow = false

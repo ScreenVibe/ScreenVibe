@@ -15,7 +15,7 @@ final class SendWindow: NSPanel, NSTextFieldDelegate {
     private var refresh: Timer?
 
     init(preview: NSImage, marks: [Mark]) {
-        super.init(contentRect: CGRect(x: 0, y: 0, width: 960, height: 400), styleMask: [.titled, .closable],
+        super.init(contentRect: CGRect(x: 0, y: 0, width: 960, height: 400), styleMask: [.titled, .closable, .nonactivatingPanel],
                    backing: .buffered, defer: false)
         title = "Send the markup"
         level = NSWindow.Level(rawValue: NSWindow.Level.screenSaver.rawValue + 2)
