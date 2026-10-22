@@ -8,7 +8,7 @@ cd "$(dirname "$0")"
 
 VERSION="$(cat VERSION)"
 TAG="v$VERSION"
-OUT="$PWD/dist"
+OUT="${TMPDIR:-/tmp}/screenvibe-release"   # not under Documents: a synced folder adds file info codesign refuses
 APP="$OUT/ScreenVibe.app"
 ZIP="$OUT/ScreenVibe-$VERSION.zip"
 
