@@ -9,7 +9,7 @@ It is free and open source (MIT). It was built for one person's way of working; 
 ## What it works with
 
 - **Claude Code in the terminal**, and **local Code sessions in the Claude desktop app**. Both tested.
-- Not yet: Claude Code in VS Code or JetBrains. The add-on doesn't start there yet.
+- Claude Code in VS Code and JetBrains should work too, but hasn't been tested. If it doesn't show up in the Send menu, please open an issue.
 - Sessions that run in the cloud (claude.ai/code on the web) can't receive markups: they can't see your Mac's files.
 - Other AI apps: **Copy** puts the marked picture on the clipboard, so you can paste it anywhere. The words that come with it are written for Claude Code and point to files on your Mac.
 
@@ -27,7 +27,7 @@ cd ScreenVibe
 
 That builds the menu bar app, installs it to `~/Applications/ScreenVibe.app` and starts it. It signs the app with your Apple developer certificate if you have one. Without one, each rebuild looks like a new app to macOS: the switches in System Settings still look on but no longer apply. Then select ScreenVibe in Screen & System Audio Recording (and Accessibility), remove it with −, and add it again.
 
-ScreenVibe doesn't start by itself after a restart. To have it start, add it in System Settings, General, Login Items.
+To have ScreenVibe start when you log in, choose **Start at login** in its menu bar menu.
 
 Then add the Claude Code add-on:
 
@@ -67,7 +67,7 @@ Only Screen Recording is required. Without the others, the markup just carries l
 
 ## Privacy
 
-Everything stays on your Mac. Markups are saved in `~/.screenvibe/markups/` and read by your own Claude Code session. ScreenVibe itself sends nothing over the network. What the session does with a markup is up to Claude Code, like any prompt you type.
+Everything stays on your Mac. Markups are saved in `~/.screenvibe/markups/` and read by your own Claude Code session. Markups older than 30 days are deleted. ScreenVibe itself sends nothing over the network. What the session does with a markup is up to Claude Code, like any prompt you type.
 
 ## How it works
 

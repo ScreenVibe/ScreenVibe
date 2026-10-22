@@ -692,7 +692,7 @@ final class Canvas: NSView, NSTextFieldDelegate {
 
     override func keyDown(with event: NSEvent) {
         let cmd = event.modifierFlags.contains(.command)
-        let chars = event.charactersIgnoringModifiers?.lowercased() ?? ""
+        let chars = Self.letter(for: event)
         switch event.keyCode {
         case 49: // Space: hold and drag to move the picture's box
             if !spaceDown { spaceDown = true; NSCursor.openHand.set() }
@@ -728,6 +728,17 @@ final class Canvas: NSView, NSTextFieldDelegate {
             return
         }
         super.keyDown(with: event)
+    }
+
+    /// The key's letter: the typed one on Latin layouts (so AZERTY's A is A), else the letter at that key on a US
+    /// keyboard, so tool keys and ⌘Z/C/V also work on Hebrew, Russian and other layouts.
+    static func letter(for event: NSEvent) -> String {
+        let typed = event.charactersIgnoringModifiers?.lowercased() ?? ""
+        if typed.count == 1, let c = typed.unicodeScalars.first, c.isASCII { return typed }
+        let us: [UInt16: String] = [0: "a", 11: "b", 8: "c", 2: "d", 14: "e", 3: "f", 5: "g", 4: "h", 34: "i", 38: "j",
+                                    40: "k", 37: "l", 46: "m", 45: "n", 31: "o", 35: "p", 12: "q", 15: "r", 1: "s", 17: "t",
+                                    32: "u", 9: "v", 13: "w", 7: "x", 16: "y", 6: "z"]
+        return us[event.keyCode] ?? typed
     }
 
     // MARK: copy and paste a part of the frozen screen

@@ -1,6 +1,7 @@
 import AppKit
 import ApplicationServices
 import Carbon.HIToolbox
+import ServiceManagement
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
@@ -17,6 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             b.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
         Self.moveFromUandI()
+        Self.deleteOldMarkups()
         registerHotKey()
         Guide.write()
         let args = CommandLine.arguments
@@ -127,9 +129,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
                 NSWorkspace.shared.open(dir)
             })
+            let login = ClosureMenuItem(title: "Start at login") {
+                let s = SMAppService.mainApp
+                do { if s.status == .enabled { try s.unregister() } else { try s.register() } }
+                catch { NSAlert(error: error).runModal() }
+            }
+            login.state = SMAppService.mainApp.status == .enabled ? .on : .off
+            m.addItem(login)
             m.addItem(.separator())
             m.addItem(ClosureMenuItem(title: "About ScreenVibe") {
-                let credit = NSAttributedString(string: "Created by Vibe Coding prodigy Hanaan",
+                let credit = NSAttributedString(string: "Created by Hanaan",
                     attributes: [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.labelColor,
                                  .paragraphStyle: { let p = NSMutableParagraphStyle(); p.alignment = .center; return p }()])
                 NSApp.activate(ignoringOtherApps: true)
@@ -176,6 +185,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
            let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
             NSWorkspace.shared.open(url)
         }
+    }
+
+    /// Markups and inbox folders older than 30 days go, so full-size pictures don't pile up. Checked at launch and daily.
+    static func deleteOldMarkups() {
+        let fm = FileManager.default
+        let cutoff = Date().addingTimeInterval(-30 * 24 * 3600)
+        var folders: [URL] = []
+        for top in ["markups", "inbox"] {
+            let dir = Output.root.appendingPathComponent(top)
+            let items = (try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
+            // markups/<time>, inbox/<session>/<time>
+            folders += top == "markups" ? items : items.flatMap {
+                (try? fm.contentsOfDirectory(at: $0, includingPropertiesForKeys: [.contentModificationDateKey])) ?? [] }
+        }
+        for f in folders {
+            if let d = try? f.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate, d < cutoff {
+                try? fm.removeItem(at: f)
+            }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 24 * 3600) { deleteOldMarkups() }
     }
 
     /// ScreenVibe was called UandI. Carries over its folder (tools, markups) and its settings, once.
