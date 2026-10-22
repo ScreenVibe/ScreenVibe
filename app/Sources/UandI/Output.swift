@@ -48,7 +48,7 @@ enum Output {
         ctx.translateBy(x: -crop.minX, y: -crop.minY)
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: true)
-        for (i, m) in marks.enumerated() { MarkDrawing.draw(m, number: i + 1, selected: false) }
+        MarkDrawing.drawAll(marks)
         NSGraphicsContext.restoreGraphicsState()
         return ctx.makeImage()
     }

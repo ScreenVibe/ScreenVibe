@@ -271,11 +271,18 @@ final class Canvas: NSView, NSTextFieldDelegate {
         func tool(_ id: String) -> ToolDef? { tools.first { $0.id == id } }
         if let t = tool("remove") { var m = Mark(kind: .tool(t)); m.rect = CGRect(x: c.minX + 30, y: c.minY + 40, width: 260, height: 50); marks.append(m) }
         if let t = tool("wording") { var m = Mark(kind: .tool(t)); m.rect = CGRect(x: c.minX + 30, y: c.minY + 130, width: 140, height: 40); m.text = "Save changes"; marks.append(m) }
-        if let t = tool("button") { var m = Mark(kind: .tool(t)); m.rect = CGRect(x: c.minX + 220, y: c.minY + 130, width: 130, height: 44); m.text = "Export"; marks.append(m) }
+        if let t = tool("button") { var m = Mark(kind: .tool(t)); m.rect = CGRect(x: c.minX + 220, y: c.minY + 130, width: 130, height: 44); m.text = ProcessInfo.processInfo.environment["UANDI_DEMO_LABEL"] ?? "Export"; marks.append(m) }
         if let t = tool("move") { var m = Mark(kind: .tool(t)); m.rect = CGRect(x: c.minX + 30, y: c.minY + 230, width: 110, height: 40); m.end = CGPoint(x: c.maxX - 90, y: c.minY + 250); marks.append(m) }
         if let t = tool("note") { var m = Mark(kind: .tool(t)); m.rect = CGRect(x: c.minX + 400, y: c.minY + 40, width: 0, height: 0); m.text = "Too much space up here"; marks.append(m) }
         controller?.placePalettes()
         needsDisplay = true
+        let env = ProcessInfo.processInfo.environment
+        if let words = env["UANDI_DEMO_ASK"] ?? env["UANDI_DEMO_WORDS"], let i = marks.firstIndex(where: { $0.tool?.id == "wording" }) {
+            marks[i].text = words
+            guard env["UANDI_DEMO_ASK"] != nil else { return }
+            openEditor(for: i, isNew: false)
+            controlTextDidChange(Notification(name: NSControl.textDidChangeNotification))
+        }
     }
 
     func toolsChanged() {
@@ -302,9 +309,8 @@ final class Canvas: NSView, NSTextFieldDelegate {
             NSColor.black.withAlphaComponent(0.12).setFill()
             bounds.fill()
         }
-        for (i, m) in marks.enumerated() {
-            MarkDrawing.draw(m, number: i + 1, selected: selected == i && tool == nil)
-        }
+        // The open question box shows its mark's words, so the mark's own bubble stays hidden.
+        MarkDrawing.drawAll(marks, selected: tool == nil ? selected : nil, hideWordsOf: editor?.index)
         if case .drawing(let m, _) = drag { MarkDrawing.draw(m, number: nil, selected: false) }
         if case .marquee = drag, let r = pixelSelection { drawMarquee(r) }
         else if let r = pixelSelection { drawMarquee(r) }
@@ -601,6 +607,7 @@ final class Canvas: NSView, NSTextFieldDelegate {
         prompt.field.delegate = self
         addSubview(prompt)
         editor = prompt
+        needsDisplay = true
         window?.makeFirstResponder(prompt.field)
     }
 
@@ -620,6 +627,12 @@ final class Canvas: NSView, NSTextFieldDelegate {
         }
         window?.makeFirstResponder(self)
         needsDisplay = true
+    }
+
+    func controlTextDidChange(_ note: Notification) {
+        guard let e = editor else { return }
+        e.fit()
+        if e.frame.maxY > bounds.height - 8 { e.setFrameOrigin(CGPoint(x: e.frame.minX, y: max(8, bounds.height - 8 - e.frame.height))) }
     }
 
     func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
@@ -657,8 +670,25 @@ final class TextPrompt: NSView {
         field.font = .systemFont(ofSize: 14)
         field.frame = CGRect(x: 10, y: 26, width: 280, height: 26)
         field.focusRingType = .none
+        field.usesSingleLineMode = false
+        field.cell?.wraps = true
+        field.cell?.isScrollable = false
+        field.lineBreakMode = .byWordWrapping
         addSubview(label)
         addSubview(field)
+        fit()
+    }
+
+    /// Grows the box down so every line of the words shows.
+    func fit() {
+        let text = field.currentEditor()?.string ?? field.stringValue
+        let b = ((text.isEmpty ? " " : text) as NSString).boundingRect(
+            with: CGSize(width: field.frame.width - 8, height: 10_000), options: [.usesLineFragmentOrigin],
+            attributes: [.font: field.font!])
+        let h = max(26, ceil(b.height) + 9)
+        guard h != field.frame.height else { return }
+        field.frame.size.height = h
+        setFrameSize(CGSize(width: frame.width, height: h + 36))
     }
 
     required init?(coder: NSCoder) { fatalError() }

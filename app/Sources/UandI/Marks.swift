@@ -75,7 +75,26 @@ enum MarkDrawing {
     static let calloutFont = NSFont.systemFont(ofSize: 14, weight: .medium)
     static let tagFont = NSFont.systemFont(ofSize: 12, weight: .bold)
 
-    static func draw(_ m: Mark, number: Int?, selected: Bool) {
+    /// Draws every mark: the shapes first, then all the words, then the numbers, so later marks never cover words.
+    static func drawAll(_ marks: [Mark], selected: Int? = nil, hideWordsOf hidden: Int? = nil) {
+        for m in marks { draw(m, number: nil, selected: false, words: false) }
+        for (i, m) in marks.enumerated() where i != hidden { words(m) }
+        for (i, m) in marks.enumerated() {
+            tag(i + 1, at: tagPoint(m), color: m.color)
+            if selected == i { handles(m) }
+        }
+    }
+
+    static func words(_ m: Mark) {
+        guard let t = m.tool else { return }
+        switch t.shape {
+        case .box, .oval: drawWords(m, tool: t)
+        case .text: bubble(m.text, at: m.rect.origin, color: m.color)
+        default: break
+        }
+    }
+
+    static func draw(_ m: Mark, number: Int?, selected: Bool, words showWords: Bool = true) {
         let color = m.color
         switch m.kind {
         case .pasted(let img, _):
@@ -87,7 +106,6 @@ enum MarkDrawing {
                 let path = t.shape == .box ? NSBezierPath(rect: m.rect) : NSBezierPath(ovalIn: m.rect)
                 fill(path, rect: m.rect, color: color, fill: t.fill)
                 stroke(path, color: color, width: t.lineWidth, dashed: t.dashed)
-                drawWords(m, tool: t)
             case .boxArrow:
                 let path = NSBezierPath(rect: m.rect)
                 fill(path, rect: m.rect, color: color, fill: t.fill)
@@ -111,9 +129,10 @@ enum MarkDrawing {
                 path.lineJoinStyle = .round
                 stroke(path, color: color, width: t.lineWidth, dashed: false)
             case .text:
-                bubble(m.text, at: m.rect.origin, color: color)
+                break
             }
         }
+        if showWords { words(m) }
         if let n = number { tag(n, at: tagPoint(m), color: color) }
         if selected { handles(m) }
     }
@@ -130,14 +149,21 @@ enum MarkDrawing {
             let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 14, weight: .medium),
                                                         .foregroundColor: t.color.blended(withFraction: 0.3, of: .black)!]
             let s = m.text as NSString
-            let sz = s.size(withAttributes: attrs)
-            let w = min(sz.width + 26, m.rect.width - 8), h = min(sz.height + 12, m.rect.height - 8)
+            let para = NSMutableParagraphStyle()
+            para.alignment = .center
+            var a = attrs
+            a[.paragraphStyle] = para
+            let wrap = max(20, m.rect.width - 34)
+            let sz = s.boundingRect(with: CGSize(width: wrap, height: 10_000),
+                                    options: [.usesLineFragmentOrigin], attributes: a).size
+            let w = ceil(sz.width) + 26, h = ceil(sz.height) + 12
             let b = CGRect(x: m.rect.midX - w / 2, y: m.rect.midY - h / 2, width: w, height: h)
             let pill = NSBezierPath(roundedRect: b, xRadius: 6, yRadius: 6)
             NSColor.white.setFill()
             pill.fill()
             stroke(pill, color: t.color, width: 1.5, dashed: true)
-            s.draw(at: CGPoint(x: b.midX - sz.width / 2, y: b.midY - sz.height / 2), withAttributes: attrs)
+            s.draw(with: CGRect(x: b.midX - wrap / 2, y: b.minY + 6, width: wrap, height: ceil(sz.height) + 2),
+                   options: [.usesLineFragmentOrigin], attributes: a)
         } else {
             bubble("“\(m.text)”", at: CGPoint(x: m.rect.minX, y: m.rect.maxY + 6), color: t.color)
         }
@@ -150,7 +176,8 @@ enum MarkDrawing {
         let box = CGRect(x: p.x, y: p.y, width: ceil(b.width) + 18, height: ceil(b.height) + 10)
         color.setFill()
         NSBezierPath(roundedRect: box, xRadius: 6, yRadius: 6).fill()
-        s.draw(with: CGRect(x: box.minX + 9, y: box.minY + 5, width: ceil(b.width) + 1, height: ceil(b.height)),
+        // Drawn at the measured wrap width, so the lines break exactly as they were measured.
+        s.draw(with: CGRect(x: box.minX + 9, y: box.minY + 5, width: 320, height: ceil(b.height) + 2),
                options: [.usesLineFragmentOrigin], attributes: attrs)
     }
 
