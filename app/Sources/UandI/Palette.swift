@@ -155,7 +155,7 @@ final class Palette: NSPanel {
         }
     }
 
-    private let effect = NSVisualEffectView()
+    private let effect = NSView()  // a solid frame: the palettes are not see-through
 
     init(key: String) {
         self.key = key
@@ -165,14 +165,11 @@ final class Palette: NSPanel {
         backgroundColor = .clear
         isOpaque = false
         hasShadow = true
-        effect.material = .hudWindow
-        effect.blendingMode = .behindWindow
-        effect.state = .active
         effect.appearance = NSAppearance(named: .darkAqua)
         effect.wantsLayer = true
+        effect.layer?.backgroundColor = NSColor(hex: "#262629")!.cgColor
         effect.layer?.cornerRadius = 12
         effect.layer?.masksToBounds = true
-        effect.alphaValue = 0.94
         contentView = effect
     }
 
