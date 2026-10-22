@@ -19,7 +19,8 @@ enum Guide {
 
         - **Marked picture**: the boxed area with the marks drawn on it. Each mark has a numbered circle.
         - **Clean picture**: the same area with no marks, so you can see what is under them.
-        - **Where**: the app and window under the box, when UandI could tell.
+        - **App, Window, URL, Document**: what was in front when the screen froze: the app, its window title, the web address when it is a browser, and the open file when the app reports one. Each appears only when UandI could tell.
+        - **Under the picture**: the app under the picture, when it is not the front app.
         - **Note**: the user's note about the whole markup, when there is one.
         - **Numbered lines**: one for each mark, matching the numbers in the marked picture.
 
@@ -30,6 +31,7 @@ enum Guide {
         - The tool's name comes first, then the request. The user may have edited the request before sending, so follow it as written.
         - Positions are in points from the top-left corner of the pictures, written `x,y width×height`. The markup says how many pixels make a point ("saved at 2×").
         - `→` points to where a Move or Copy+move goes. When the size there differs from the area's size, the piece should take the new size.
+        - `Note:` at the end of a line is the user's own note on that mark. It adds to the request.
         - "Words there" is text UandI read from the clean picture inside the mark. Use it to find the element in the code. It can contain small reading mistakes.
 
         ## The tools
@@ -48,7 +50,7 @@ enum Guide {
 
         ## How to act
 
-        - Find the code that draws this screen. Use Where, the words in the marks and the project you are working in.
+        - Find the code that draws this screen. Use the URL, document, window title, the words in the marks and the project you are working in.
         - Make each numbered change. Change nothing that is not marked.
         - Remove has no words on purpose: the highlighted thing goes away.
         - If a mark is unclear, or two marks disagree, ask before changing anything.

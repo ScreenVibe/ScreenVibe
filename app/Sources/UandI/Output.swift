@@ -120,10 +120,15 @@ enum Output {
         lines.append(briefed
             ? "UandI markup (how to read it: \(Guide.url.path))."
             : "UandI markup. Before acting, read the guide once: \(Guide.url.path). Later markups in this chat use the same format.")
-        if let w = window(under: crop, frozen: frozen) {
-            lines.append("Where: \(w.title.isEmpty ? w.app : "\(w.app) — \(w.title)").")
+        let c = frozen.context
+        if !c.app.isEmpty { lines.append("App: \(c.app)\(c.bundleID.isEmpty ? "" : " (\(c.bundleID))").") }
+        if !c.window.isEmpty { lines.append("Window: \(c.window)") }
+        if let u = c.url { lines.append("URL: \(u)") }
+        if let d = c.document { lines.append("Document: \(d)") }
+        if let w = window(under: crop, frozen: frozen), w.app != c.app {
+            lines.append("Under the picture: \(w.title.isEmpty ? w.app : "\(w.app) — \(w.title)").")
         }
-        lines.append("Picture: \(n(crop.width))×\(n(crop.height)) points, saved at \(Int(frozen.scale))×.")
+        lines.append("Picture: \(n(crop.width))×\(n(crop.height)) points, saved at \(Int(frozen.scale.rounded()))×.")
         lines.append("Marked: \(markedURL.path)")
         lines.append("Clean: \(cleanURL.path)")
         let note = note.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -147,6 +152,8 @@ enum Output {
                 }
             }
             if i < words.count, !words[i].isEmpty { line += " Words there: “\(words[i])”." }
+            let extra = m.extra.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !extra.isEmpty { line += " Note: \(extra)\(extra.hasSuffix(".") || extra.hasSuffix("?") || extra.hasSuffix("!") ? "" : ".")" }
             lines.append(line)
         }
         return lines.joined(separator: "\n")

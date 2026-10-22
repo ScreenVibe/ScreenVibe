@@ -23,9 +23,17 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>LSUIElement</key><true/>
   <key>NSHighResolutionCapable</key><true/>
+  <key>NSAppleEventsUsageDescription</key><string>UandI reads the web address of the front browser tab, so Claude knows which page you marked.</string>
 </dict></plist>
 PLIST
-codesign --force --options runtime --sign "Developer ID Application: Hanaan Rosenthal (467NFKHC5S)" "$APP"
+cat > "$PWD/.build/UandI.entitlements" <<'ENT'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>com.apple.security.automation.apple-events</key><true/>
+</dict></plist>
+ENT
+codesign --force --options runtime --entitlements "$PWD/.build/UandI.entitlements" --sign "Developer ID Application: Hanaan Rosenthal (467NFKHC5S)" "$APP"
 codesign --verify --strict "$APP"
 open "$APP"
 echo "Installed and started $APP"

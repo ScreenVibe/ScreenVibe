@@ -79,9 +79,14 @@ final class OverlayController {
         var tiles: [NSView] = []
         let select = Tile(symbol: "cursorarrow", label: "Select", large: large)
         select.toolTip = "Select (V)"
-        select.isOn = canvas.tool == nil
+        select.isOn = canvas.tool == nil && !canvas.cropping
         select.onClick = { [weak self] in self?.canvas.setTool(nil) }
         tiles.append(select)
+        let crop = Tile(symbol: "crop", label: "Crop", large: large)
+        crop.toolTip = "Crop (K). Space + drag moves the box with any tool."
+        crop.isOn = canvas.cropping
+        crop.onClick = { [weak self] in self?.canvas.setCrop() }
+        tiles.append(crop)
         for t in ToolStore.shared.tools {
             let tile = Tile(symbol: t.symbol, label: t.name, tint: t.color.blended(withFraction: 0.35, of: .white)!,
                             large: large)
@@ -166,7 +171,9 @@ final class OverlayController {
         guard let preview = Output.preview(frozen: frozen, crop: canvas.outputArea, marks: canvas.marks) else { return }
         let w = SendWindow(preview: preview, marks: canvas.marks)
         w.onCancel = { [weak self] in self?.closeSendWindow() }
-        w.onSend = { [weak self] requests, note, session in self?.send(to: session, requests: requests, note: note) }
+        w.onSend = { [weak self] requests, markNotes, note, session in
+            self?.send(to: session, requests: requests, markNotes: markNotes, note: note)
+        }
         sendWindow = w
         w.present(on: frozen.screen)
     }
@@ -178,10 +185,11 @@ final class OverlayController {
         window.makeFirstResponder(canvas)
     }
 
-    private func send(to s: SessionInfo, requests: [String], note: String) {
+    private func send(to s: SessionInfo, requests: [String], markNotes: [String], note: String) {
         var marks = canvas.marks
         for i in marks.indices where i < requests.count {
             if requests[i] != Output.sentence(for: marks[i]) { marks[i].note = requests[i] }
+            if i < markNotes.count, !marks[i].extra.isEmpty { marks[i].extra = markNotes[i] }
         }
         guard let out = Output.make(frozen: frozen, crop: canvas.outputArea, marks: marks, note: note,
                                     briefed: Sessions.isBriefed(s)) else { return }
@@ -223,11 +231,14 @@ final class Canvas: NSView, NSTextFieldDelegate {
         case movingEnd(Int)
         case movingTarget(Int, CGPoint)
         case resizingCrop(handle: Int)
+        case movingCrop(CGPoint)
         case marquee(CGPoint)
     }
     private var drag: Drag = .none
     private var aiming: Int?              // a box+arrow mark waiting for the click where it goes
     private var editor: TextPrompt?
+    private(set) var cropping = false      // the Crop tool: the only way to resize the picture
+    private var spaceDown = false          // space + drag moves the picture's box with any tool
 
     /// What the picture covers: the box, or the whole screen when no box was drawn.
     var outputArea: CGRect { crop ?? bounds }
@@ -236,6 +247,7 @@ final class Canvas: NSView, NSTextFieldDelegate {
         self.frozen = frozen
         background = NSImage(cgImage: frozen.image, size: frozen.screen.frame.size)
         super.init(frame: CGRect(origin: .zero, size: frozen.screen.frame.size))
+        crop = bounds  // the whole screen, until Crop makes it smaller
         tool = ToolStore.shared.tools.first
     }
 
@@ -253,8 +265,18 @@ final class Canvas: NSView, NSTextFieldDelegate {
 
     override func cursorUpdate(with event: NSEvent) { NSCursor.crosshair.set() }
 
+    func setCrop() {
+        commitEditor()
+        tool = nil
+        cropping = true
+        selected = nil
+        controller?.refreshTools()
+        needsDisplay = true
+    }
+
     func setTool(_ t: ToolDef?) {
         commitEditor()
+        cropping = false
         tool = t
         if t != nil { selected = nil }
         controller?.refreshTools()
@@ -275,6 +297,8 @@ final class Canvas: NSView, NSTextFieldDelegate {
         controller?.placePalettes()
         needsDisplay = true
         let env = ProcessInfo.processInfo.environment
+        if let n = env["UANDI_DEMO_NOTE"], let i = marks.firstIndex(where: { $0.tool?.id == "wording" }) { marks[i].extra = n }
+        if env["UANDI_DEMO_CROP"] != nil { setCrop() }
         if env["UANDI_DEMO_TARGET"] != nil, let i = marks.firstIndex(where: { $0.isBoxArrow }) {
             marks[i].targetSize = CGSize(width: marks[i].rect.width * 1.8, height: marks[i].rect.height * 2.2)
             selected = i
@@ -307,16 +331,35 @@ final class Canvas: NSView, NSTextFieldDelegate {
             border.lineWidth = 1.5
             NSColor.white.setStroke()
             border.stroke()
-            if tool == nil { for h in cropHandles(c) { drawHandle(h) } }
+            if cropping {
+                for h in cropHandles(c) { drawHandle(h) }
+                switch drag {
+                case .makingCrop, .resizingCrop: drawSize(of: c)
+                default: break
+                }
+            }
         } else {
             NSColor.black.withAlphaComponent(0.12).setFill()
             bounds.fill()
         }
         // The open question box shows its mark's words, so the mark's own bubble stays hidden.
-        MarkDrawing.drawAll(marks, selected: tool == nil ? selected : nil, hideWordsOf: editor?.index)
+        MarkDrawing.drawAll(marks, selected: tool == nil && !cropping ? selected : nil,
+                            hideWordsOf: editor?.isNote == false ? editor?.index : nil, badges: true)
         if case .drawing(let m, _) = drag { MarkDrawing.draw(m, number: nil, selected: false) }
         if case .marquee = drag, let r = pixelSelection { drawMarquee(r) }
         else if let r = pixelSelection { drawMarquee(r) }
+    }
+
+    private func drawSize(of c: CGRect) {
+        let s = "\(Int(c.width.rounded())) × \(Int(c.height.rounded()))" as NSString
+        let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 13, weight: .semibold),
+                                                    .foregroundColor: NSColor.white]
+        let sz = s.size(withAttributes: attrs)
+        var r = CGRect(x: c.maxX - sz.width - 18, y: c.maxY + 8, width: sz.width + 18, height: sz.height + 8)
+        if r.maxY > bounds.height - 4 { r.origin.y = c.maxY - r.height - 8 }
+        NSColor(hex: "#1A73E8")!.setFill()
+        NSBezierPath(roundedRect: r, xRadius: 6, yRadius: 6).fill()
+        s.draw(at: CGPoint(x: r.minX + 9, y: r.minY + 4), withAttributes: attrs)
     }
 
     private func drawMarquee(_ r: CGRect) {
@@ -347,7 +390,7 @@ final class Canvas: NSView, NSTextFieldDelegate {
     // MARK: mouse
 
     private func point(_ e: NSEvent) -> CGPoint { convert(e.locationInWindow, from: nil) }
-    private func near(_ a: CGPoint, _ b: CGPoint) -> Bool { hypot(a.x - b.x, a.y - b.y) < 8 }
+    private func near(_ a: CGPoint, _ b: CGPoint, _ d: CGFloat = 8) -> Bool { hypot(a.x - b.x, a.y - b.y) < d }
 
     override func mouseMoved(with event: NSEvent) {
         if let i = aiming {
@@ -365,8 +408,24 @@ final class Canvas: NSView, NSTextFieldDelegate {
             needsDisplay = true
             return
         }
+        if spaceDown, crop != nil {
+            pushUndo()
+            drag = .movingCrop(p)
+            NSCursor.closedHand.set()
+            return
+        }
+        if let i = marks.indices.reversed().first(where: { near(p, MarkDrawing.badgePoint(marks[$0]), 12) }) {
+            openEditor(for: i, isNew: false, note: true)
+            return
+        }
         guard let c = crop else {
             drag = .makingCrop(p)
+            return
+        }
+        if cropping {
+            pushUndo()
+            if let k = cropHandles(c).firstIndex(where: { near(p, $0) }) { drag = .resizingCrop(handle: k) }
+            else { drag = .makingCrop(p) }
             return
         }
         guard let t = tool else {
@@ -413,11 +472,6 @@ final class Canvas: NSView, NSTextFieldDelegate {
                 }
             }
         }
-        if let k = cropHandles(c).firstIndex(where: { near(p, $0) }) {
-            pushUndo()
-            drag = .resizingCrop(handle: k)
-            return
-        }
         if let i = marks.indices.reversed().first(where: { marks[$0].hit(p) }) {
             selected = i
             pixelSelection = nil
@@ -444,7 +498,15 @@ final class Canvas: NSView, NSTextFieldDelegate {
         switch drag {
         case .none: return
         case .makingCrop(let s):
-            crop = CGRect(p1: s, p2: p)
+            crop = CGRect(p1: s, p2: p).intersection(bounds)
+            controller?.placePalettes()
+        case .movingCrop(let last):
+            guard var c = crop else { return }
+            c.origin.x = min(max(0, c.minX + p.x - last.x), bounds.width - c.width)
+            c.origin.y = min(max(0, c.minY + p.y - last.y), bounds.height - c.height)
+            crop = c
+            drag = .movingCrop(CGPoint(x: p.x, y: p.y))
+            controller?.placePalettes()
         case .drawing(var m, let s):
             switch m.tool?.shape {
             case .arrow: m.end = p
@@ -495,8 +557,10 @@ final class Canvas: NSView, NSTextFieldDelegate {
         drag = .none
         switch current {
         case .makingCrop:
-            if let c = crop, c.width < 8 || c.height < 8 { crop = nil }
+            if let c = crop, c.width < 8 || c.height < 8 { undo() }
             controller?.placePalettes()
+        case .movingCrop:
+            (spaceDown ? NSCursor.openHand : NSCursor.crosshair).set()
         case .drawing(let m, _):
             guard let t = m.tool else { break }
             let a = m.area
@@ -520,10 +584,22 @@ final class Canvas: NSView, NSTextFieldDelegate {
 
     // MARK: keys
 
+    override func keyUp(with event: NSEvent) {
+        if event.keyCode == 49 {
+            spaceDown = false
+            if case .movingCrop = drag {} else { NSCursor.crosshair.set() }
+            return
+        }
+        super.keyUp(with: event)
+    }
+
     override func keyDown(with event: NSEvent) {
         let cmd = event.modifierFlags.contains(.command)
         let chars = event.charactersIgnoringModifiers?.lowercased() ?? ""
         switch event.keyCode {
+        case 49: // Space: hold and drag to move the picture's box
+            if !spaceDown { spaceDown = true; NSCursor.openHand.set() }
+            return
         case 53: // Escape
             if let i = aiming { aiming = nil; marks[i].end = .zero; marks.remove(at: i); needsDisplay = true }
             else if pixelSelection != nil { pixelSelection = nil; needsDisplay = true }
@@ -549,6 +625,7 @@ final class Canvas: NSView, NSTextFieldDelegate {
             return
         }
         if chars == "v" { setTool(nil); return }
+        if chars == "k" { setCrop(); return }
         if let t = ToolStore.shared.tools.first(where: { !$0.shortcut.isEmpty && $0.shortcut.lowercased() == chars }) {
             setTool(t)
             return
@@ -622,10 +699,19 @@ final class Canvas: NSView, NSTextFieldDelegate {
 
     // MARK: the words a tool asks for
 
-    private func openEditor(for i: Int, isNew: Bool) {
-        guard let t = marks[i].tool, let question = t.ask ?? (t.shape == .text ? "What is the note?" : nil) else { return }
-        let a = marks[i].area
-        let prompt = TextPrompt(question: question, text: marks[i].text, color: t.color)
+    /// `note`: the mark's own note, from its note button, instead of the words its tool asks for.
+    private func openEditor(for i: Int, isNew: Bool, note: Bool = false) {
+        commitEditor()
+        let m = marks[i]
+        let prompt: TextPrompt
+        if note {
+            prompt = TextPrompt(question: "Note for mark \(i + 1)", text: m.extra, color: m.color)
+        } else {
+            guard let t = m.tool, let question = t.ask ?? (t.shape == .text ? "What is the note?" : nil) else { return }
+            prompt = TextPrompt(question: question, text: m.text, color: t.color)
+        }
+        prompt.isNote = note
+        let a = m.area
         var origin = CGPoint(x: a.minX, y: a.maxY + 8)
         if origin.y + prompt.frame.height > bounds.height - 8 { origin.y = max(8, a.minY - prompt.frame.height - 8) }
         origin.x = min(max(8, origin.x), bounds.width - prompt.frame.width - 8)
@@ -645,7 +731,9 @@ final class Canvas: NSView, NSTextFieldDelegate {
         let text = e.field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         e.removeFromSuperview()
         if e.index < marks.count {
-            if cancel {
+            if e.isNote {
+                if !cancel { pushUndo(); marks[e.index].extra = text }
+            } else if cancel {
                 if e.isNew { marks.remove(at: e.index) }
             } else if text.isEmpty && marks[e.index].tool?.shape == .text {
                 marks.remove(at: e.index)
@@ -682,6 +770,7 @@ final class TextPrompt: NSView {
     let field = NSTextField()
     var index = 0
     var isNew = true
+    var isNote = false
 
     init(question: String, text: String, color: NSColor) {
         super.init(frame: CGRect(x: 0, y: 0, width: 300, height: 62))

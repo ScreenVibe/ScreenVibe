@@ -14,6 +14,7 @@ struct Mark {
     var points: [CGPoint] = []        // pen
     var text: String = ""
     var note: String?                 // the request as edited in the Send window
+    var extra = ""                    // the user's own note on this mark, from its note button
     var targetSize: CGSize?           // where a box+arrow points, once sized on its own; else the source's size
 
     var tool: ToolDef? {
@@ -86,12 +87,56 @@ enum MarkDrawing {
     static let tagFont = NSFont.systemFont(ofSize: 12, weight: .bold)
 
     /// Draws every mark: the shapes first, then all the words, then the numbers, so later marks never cover words.
-    static func drawAll(_ marks: [Mark], selected: Int? = nil, hideWordsOf hidden: Int? = nil) {
+    /// `badges`: the round note buttons, on screen only.
+    static func drawAll(_ marks: [Mark], selected: Int? = nil, hideWordsOf hidden: Int? = nil, badges: Bool = false) {
         for m in marks { draw(m, number: nil, selected: false, words: false) }
         for (i, m) in marks.enumerated() where i != hidden { words(m) }
         for (i, m) in marks.enumerated() {
             tag(i + 1, at: tagPoint(m), color: m.color)
+            if badges { badge(at: badgePoint(m), filled: !m.extra.isEmpty) }
             if selected == i { handles(m) }
+        }
+    }
+
+    /// The note button sits on the mark's top-right corner.
+    static func badgePoint(_ m: Mark) -> CGPoint {
+        let a = m.area
+        return CGPoint(x: a.maxX, y: a.minY)
+    }
+
+    static func badge(at p: CGPoint, filled: Bool) {
+        let r = CGRect(x: p.x - 11, y: p.y - 11, width: 22, height: 22)
+        NSGraphicsContext.saveGraphicsState()
+        let sh = NSShadow()
+        sh.shadowBlurRadius = 3
+        sh.shadowOffset = NSSize(width: 0, height: -1)
+        sh.shadowColor = NSColor.black.withAlphaComponent(0.4)
+        sh.set()
+        (filled ? NSColor(white: 0.1, alpha: 1) : NSColor.white).setFill()
+        NSBezierPath(ovalIn: r).fill()
+        NSGraphicsContext.restoreGraphicsState()
+        NSColor(white: 0.33, alpha: 1).setStroke()
+        let ring = NSBezierPath(ovalIn: r.insetBy(dx: 0.75, dy: 0.75))
+        ring.lineWidth = 1.5
+        if !filled { ring.stroke() }
+        // A small speech bubble.
+        let b = NSBezierPath()
+        b.move(to: CGPoint(x: p.x - 5, y: p.y - 4.5))
+        b.line(to: CGPoint(x: p.x + 5, y: p.y - 4.5))
+        b.line(to: CGPoint(x: p.x + 5, y: p.y + 2))
+        b.line(to: CGPoint(x: p.x - 0.5, y: p.y + 2))
+        b.line(to: CGPoint(x: p.x - 3.5, y: p.y + 5))
+        b.line(to: CGPoint(x: p.x - 3.5, y: p.y + 2))
+        b.line(to: CGPoint(x: p.x - 5, y: p.y + 2))
+        b.close()
+        b.lineWidth = 1.4
+        b.lineJoinStyle = .round
+        if filled {
+            NSColor.white.setFill()
+            b.fill()
+        } else {
+            NSColor(white: 0.2, alpha: 1).setStroke()
+            b.stroke()
         }
     }
 

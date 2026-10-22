@@ -7,6 +7,7 @@ struct Frozen {
     let image: CGImage          // full pixels of the screen
     let scale: CGFloat          // pixels per point
     let windows: [WindowInfo]   // front to back, other apps only
+    var context = FrontContext()
 }
 
 struct WindowInfo {
@@ -23,7 +24,7 @@ enum Capture {
         return NSScreen.screens.first { NSMouseInRect(p, $0.frame, false) } ?? NSScreen.main ?? NSScreen.screens[0]
     }
 
-    static func freeze() async throws -> Frozen {
+    static func freeze(context: FrontContext) async throws -> Frozen {
         let screen = await MainActor.run { screenUnderMouse() }
         let displayID = (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value ?? CGMainDisplayID()
         let content: SCShareableContent
@@ -43,16 +44,17 @@ enum Capture {
         config.captureResolution = .best
         let filter = SCContentFilter(display: display, excludingWindows: [])
         let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
-        return Frozen(screen: screen, image: image, scale: scale, windows: windowList())
+        return Frozen(screen: screen, image: image, scale: scale, windows: windowList(), context: context)
     }
 
-    static func windowList() -> [WindowInfo] {
+    /// Layer-0 windows front to back: another app's (`pid`), or every app's but UandI's.
+    static func windowList(pid: pid_t? = nil) -> [WindowInfo] {
         let me = ProcessInfo.processInfo.processIdentifier
         guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
             as? [[String: Any]] else { return [] }
         return list.compactMap { w in
             guard (w[kCGWindowLayer as String] as? Int) == 0,
-                  (w[kCGWindowOwnerPID as String] as? Int32) != me,
+                  let owner = w[kCGWindowOwnerPID as String] as? Int32, owner != me, pid == nil || owner == pid,
                   let b = w[kCGWindowBounds as String] as? [String: CGFloat] else { return nil }
             let frame = CGRect(x: b["X"] ?? 0, y: b["Y"] ?? 0, width: b["Width"] ?? 0, height: b["Height"] ?? 0)
             return WindowInfo(app: w[kCGWindowOwnerName as String] as? String ?? "",

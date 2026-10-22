@@ -3,11 +3,12 @@ import AppKit
 /// Opens on Send: the marked picture, every numbered request (editable), a note for the whole markup and the session.
 /// Return sends, Esc goes back to the markup.
 final class SendWindow: NSPanel, NSTextFieldDelegate {
-    var onSend: ((_ requests: [String], _ note: String, _ session: SessionInfo) -> Void)?
+    var onSend: ((_ requests: [String], _ markNotes: [String], _ note: String, _ session: SessionInfo) -> Void)?
     var onCancel: (() -> Void)?
 
     private static let columnWidth: CGFloat = 480
     private var fields: [GrowingField] = []
+    private var markNotes: [Int: GrowingField] = [:]   // only marks that have a note get a box for it
     private let note = GrowingField(minHeight: 64)
     private let popup = NSPopUpButton()
     private let sendButton = NSButton(title: "Send", target: nil, action: nil)
@@ -47,7 +48,16 @@ final class SendWindow: NSPanel, NSTextFieldDelegate {
             field.stringValue = m.note ?? Output.sentence(for: m)
             field.delegate = self
             fields.append(field)
-            column.addArrangedSubview(row(number: i + 1, color: m.color, name: Output.name(of: m), field: field))
+            var noteField: GrowingField?
+            if !m.extra.isEmpty {
+                let f = GrowingField(minHeight: 0)
+                f.stringValue = m.extra
+                f.delegate = self
+                markNotes[i] = f
+                noteField = f
+            }
+            column.addArrangedSubview(row(number: i + 1, color: m.color, name: Output.name(of: m), field: field,
+                                          note: noteField))
         }
         let noteLabel = NSTextField(labelWithString: "Note for the whole markup")
         noteLabel.font = .systemFont(ofSize: 13, weight: .semibold)
@@ -118,7 +128,7 @@ final class SendWindow: NSPanel, NSTextFieldDelegate {
 
         loadSessions()
         refresh = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in self?.loadSessions() }
-        for f in fields + [note] { f.fit() }
+        for f in fields + Array(markNotes.values) + [note] { f.fit() }
         layoutIfNeeded()
         setContentSize(content.fittingSize)
     }
@@ -137,13 +147,21 @@ final class SendWindow: NSPanel, NSTextFieldDelegate {
         super.close()
     }
 
-    private func row(number: Int, color: NSColor, name: String, field: GrowingField) -> NSView {
+    private func row(number: Int, color: NSColor, name: String, field: GrowingField, note: GrowingField?) -> NSView {
         let dot = NumberDot(number: number, color: color)
         let label = NSTextField(labelWithString: name)
         label.font = .systemFont(ofSize: 12, weight: .semibold)
         label.textColor = .secondaryLabelColor
         field.width = Self.columnWidth - 36
-        let right = NSStackView(views: [label, field])
+        var parts: [NSView] = [label, field]
+        if let note {
+            let noteLabel = NSTextField(labelWithString: "Note")
+            noteLabel.font = .systemFont(ofSize: 12, weight: .semibold)
+            noteLabel.textColor = .secondaryLabelColor
+            note.width = Self.columnWidth - 36
+            parts += [noteLabel, note]
+        }
+        let right = NSStackView(views: parts)
         right.orientation = .vertical
         right.alignment = .leading
         right.spacing = 3
@@ -179,7 +197,8 @@ final class SendWindow: NSPanel, NSTextFieldDelegate {
     @objc private func sendPressed() {
         let i = popup.indexOfSelectedItem
         guard i >= 0, i < sessions.count else { return }
-        onSend?(fields.map(\.text), note.text, sessions[i])
+        let extras = fields.indices.map { markNotes[$0]?.text ?? "" }
+        onSend?(fields.map(\.text), extras, note.text, sessions[i])
     }
 
     @objc private func cancelPressed() { onCancel?() }

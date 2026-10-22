@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 import Carbon.HIToolbox
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -18,6 +19,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         registerHotKey()
         Guide.write()
         let args = CommandLine.arguments
+        if args.contains("--print-context") {
+            // Check what a markup would say about the front app, after a pause to switch apps.
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                let c = await ContextGrab.grab()
+                print("app=\(c.app) id=\(c.bundleID) window=\(c.window) url=\(c.url ?? "-") doc=\(c.document ?? "-") ask=\(c.browserToAsk ?? "-") ax=\(AXIsProcessTrusted())")
+                exit(0)
+            }
+            return
+        }
         if let i = args.firstIndex(of: "--demo"), i + 1 < args.count { demo(path: args[i + 1]) }
     }
 
@@ -92,9 +103,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Task { @MainActor in
             defer { starting = false }
             do {
-                let frozen = try await Capture.freeze()
+                let context = await ContextGrab.grab()
+                let frozen = try await Capture.freeze(context: context)
                 let o = OverlayController(frozen: frozen)
-                o.onClose = { [weak self] in self?.overlay = nil }
+                o.onClose = { [weak self] in
+                    self?.overlay = nil
+                    ContextGrab.askLater(context)
+                }
                 overlay = o
                 o.show()
             } catch {
