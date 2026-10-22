@@ -42,6 +42,7 @@ cat > "$PWD/.build/ScreenVibe.entitlements" <<'ENT'
 ENT
 SIGN_ID="${SIGN_ID:-$(security find-identity -v -p codesigning 2>/dev/null \
   | grep -oE '"(Developer ID Application|Apple Development): [^"]+"' | head -1 | tr -d '"' || true)}"
+xattr -cr "$APP"   # Finder info on copied files makes codesign refuse
 codesign --force --options runtime ${RELEASE:+--timestamp} --entitlements "$PWD/.build/ScreenVibe.entitlements" \
   --sign "${SIGN_ID:--}" "$APP"
 codesign --verify --strict "$APP"
