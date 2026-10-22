@@ -13,6 +13,7 @@ struct Mark {
     var end: CGPoint = .zero          // arrow end, or where a box+arrow points
     var points: [CGPoint] = []        // pen
     var text: String = ""
+    var note: String?                 // the request as edited in the Send window
     var targetSize: CGSize?           // where a box+arrow points, once sized on its own; else the source's size
 
     var tool: ToolDef? {

@@ -17,7 +17,17 @@ enum Output {
         return f.string(from: Date())
     }
 
-    static func make(frozen: Frozen, crop: CGRect, marks: [Mark]) -> MarkupOutput? {
+    /// The marked picture alone, for the Send window.
+    static func preview(frozen: Frozen, crop: CGRect, marks: [Mark]) -> NSImage? {
+        let s = frozen.scale
+        let px = CGRect(x: crop.minX * s, y: crop.minY * s, width: crop.width * s, height: crop.height * s).integral
+        guard let clean = frozen.image.cropping(to: px), let marked = render(clean: clean, crop: crop, scale: s, marks: marks)
+        else { return nil }
+        return NSImage(cgImage: marked, size: crop.size)
+    }
+
+    /// `briefed`: this chat has already been pointed at the guide.
+    static func make(frozen: Frozen, crop: CGRect, marks: [Mark], note: String = "", briefed: Bool = false) -> MarkupOutput? {
         let s = frozen.scale
         let px = CGRect(x: crop.minX * s, y: crop.minY * s, width: crop.width * s, height: crop.height * s).integral
         guard let clean = frozen.image.cropping(to: px), let marked = render(clean: clean, crop: crop, scale: s, marks: marks)
@@ -31,7 +41,8 @@ enum Output {
         try? png(clean)?.write(to: cleanURL)
 
         let words = recognize(clean, crop: crop, scale: s, marks: marks)
-        let prompt = describe(frozen: frozen, crop: crop, marks: marks, words: words, markedURL: markedURL, cleanURL: cleanURL)
+        let prompt = describe(frozen: frozen, crop: crop, marks: marks, words: words, markedURL: markedURL, cleanURL: cleanURL,
+                              note: note, briefed: briefed)
         try? prompt.write(to: folder.appendingPathComponent("prompt.txt"), atomically: true, encoding: .utf8)
         return MarkupOutput(folder: folder, marked: NSImage(cgImage: marked, size: crop.size), prompt: prompt)
     }
@@ -81,53 +92,61 @@ enum Output {
 
     // MARK: the message
 
-    static func describe(frozen: Frozen, crop: CGRect, marks: [Mark], words: [String], markedURL: URL, cleanURL: URL) -> String {
-        func n(_ v: CGFloat) -> Int { Int(v.rounded()) }
-        func at(_ r: CGRect) -> String {
-            "at \(n(r.minX - crop.minX)),\(n(r.minY - crop.minY)), size \(n(r.width))×\(n(r.height))"
+    /// The request a mark makes, as the Send window first shows it: the tool's intent plus the user's words.
+    static func sentence(for m: Mark) -> String {
+        guard case .tool(let t) = m.kind else { return "Put this copied piece here." }
+        var intent = t.intent.trimmingCharacters(in: .whitespaces)
+        // A note tool's intent is often just its name ("Note"), which the line already starts with.
+        if !m.text.isEmpty, intent.trimmingCharacters(in: .punctuationCharacters).lowercased() == t.name.lowercased() {
+            return "“\(m.text)”"
         }
+        if !m.text.isEmpty {
+            if intent.hasSuffix(".") || intent.hasSuffix(":") { intent.removeLast() }
+            intent += t.shape == .text ? ": “\(m.text)”." : " “\(m.text)”."
+        } else if !intent.isEmpty && !intent.hasSuffix(".") {
+            intent += "."
+        }
+        return intent
+    }
+
+    static func name(of m: Mark) -> String { m.tool?.name ?? "Pasted piece" }
+
+    static func describe(frozen: Frozen, crop: CGRect, marks: [Mark], words: [String], markedURL: URL, cleanURL: URL,
+                         note: String, briefed: Bool) -> String {
+        func n(_ v: CGFloat) -> Int { Int(v.rounded()) }
+        func pt(_ p: CGPoint) -> String { "\(n(p.x - crop.minX)),\(n(p.y - crop.minY))" }
+        func box(_ r: CGRect) -> String { "\(pt(r.origin)) \(n(r.width))×\(n(r.height))" }
         var lines: [String] = []
-        lines.append("Here is a UI markup from UandI. Look at both pictures, then make these changes.")
-        lines.append("")
+        lines.append(briefed
+            ? "UandI markup (how to read it: \(Guide.url.path))."
+            : "UandI markup. Before acting, read the guide once: \(Guide.url.path). Later markups in this chat use the same format.")
         if let w = window(under: crop, frozen: frozen) {
             lines.append("Where: \(w.title.isEmpty ? w.app : "\(w.app) — \(w.title)").")
         }
-        lines.append("Marked picture: \(markedURL.path)")
-        lines.append("Clean picture: \(cleanURL.path)")
-        lines.append("Positions are in points from the top-left corner of the pictures. The pictures are \(n(crop.width))×\(n(crop.height)) points, saved at \(Int(frozen.scale))× pixels. Each number below matches a numbered mark in the marked picture.")
+        lines.append("Picture: \(n(crop.width))×\(n(crop.height)) points, saved at \(Int(frozen.scale))×.")
+        lines.append("Marked: \(markedURL.path)")
+        lines.append("Clean: \(cleanURL.path)")
+        let note = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !note.isEmpty { lines.append("Note: \(note)") }
         lines.append("")
-        if marks.isEmpty { lines.append("There are no marks. The picture is the whole message.") }
+        if marks.isEmpty { lines.append("No marks: the picture\(note.isEmpty ? "" : " and the note") is the whole message.") }
         for (i, m) in marks.enumerated() {
-            var line = "\(i + 1). "
+            let request = (m.note ?? sentence(for: m)).trimmingCharacters(in: .whitespacesAndNewlines)
+            var line = "\(i + 1). \(name(of: m))" + (request.isEmpty ? "." : ": \(request)")
+            if !line.hasSuffix(".") && !line.hasSuffix("?") && !line.hasSuffix("!") { line += "." }
             switch m.kind {
             case .pasted(_, let source):
-                line += "Put this copied piece here. It is \(at(m.rect))."
-                if !source.isNull { line += " It was copied from the area \(at(source))\(crop.contains(source) ? "" : ", outside the picture")." }
+                line += " Area \(box(m.rect))."
+                if !source.isNull { line += " Copied from \(box(source))\(crop.contains(source) ? "" : ", outside the picture")." }
             case .tool(let t):
-                var intent = t.intent.trimmingCharacters(in: .whitespaces)
-                if !m.text.isEmpty {
-                    if intent.hasSuffix(".") || intent.hasSuffix(":") { intent.removeLast() }
-                    intent += t.shape == .text ? ": “\(m.text)”." : " “\(m.text)”."
-                } else if !intent.hasSuffix(".") {
-                    intent += "."
-                }
-                line += intent
                 switch t.shape {
-                case .arrow:
-                    line += " The arrow goes from \(n(m.start.x - crop.minX)),\(n(m.start.y - crop.minY)) to \(n(m.end.x - crop.minX)),\(n(m.end.y - crop.minY))."
-                case .boxArrow:
-                    line += " The area is \(at(m.rect)). The arrow points to the area \(at(m.target))."
-                    let a = m.rect.size, b = m.target.size
-                    if abs(a.width - b.width) > 2 || abs(a.height - b.height) > 2 {
-                        line += " It changes size there, from \(n(a.width))×\(n(a.height)) to \(n(b.width))×\(n(b.height))."
-                    }
-                case .text:
-                    line += " The note sits at \(n(m.rect.minX - crop.minX)),\(n(m.rect.minY - crop.minY))."
-                default:
-                    line += " The area is \(at(m.area))."
+                case .arrow: line += " Arrow \(pt(m.start)) → \(pt(m.end))."
+                case .boxArrow: line += " Area \(box(m.rect)) → \(box(m.target))."
+                case .text: line += " At \(pt(m.rect.origin))."
+                default: line += " Area \(box(m.area))."
                 }
             }
-            if i < words.count, !words[i].isEmpty { line += " The words there: “\(words[i])”." }
+            if i < words.count, !words[i].isEmpty { line += " Words there: “\(words[i])”." }
             lines.append(line)
         }
         return lines.joined(separator: "\n")
@@ -215,11 +234,22 @@ enum Sessions {
         return out
     }
 
+    /// Whether this chat has already been pointed at the guide.
+    static func isBriefed(_ s: SessionInfo) -> Bool {
+        FileManager.default.fileExists(atPath: briefedURL(s).path)
+    }
+
+    private static func briefedURL(_ s: SessionInfo) -> URL {
+        Output.root.appendingPathComponent("briefed").appendingPathComponent(s.sessionId)
+    }
+
     static func deliver(_ out: MarkupOutput, to s: SessionInfo) throws {
         let dir = Output.root.appendingPathComponent("inbox").appendingPathComponent(s.sessionId)
             .appendingPathComponent(out.folder.lastPathComponent)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         try out.prompt.write(to: dir.appendingPathComponent("prompt.txt"), atomically: true, encoding: .utf8)
         try Data().write(to: dir.appendingPathComponent("ready"))
+        try? FileManager.default.createDirectory(at: briefedURL(s).deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? Data().write(to: briefedURL(s))
     }
 }

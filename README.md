@@ -8,14 +8,16 @@ Mark up any part of the screen and send it straight to a Claude Code session. No
 - Drag a box around the part you want to change.
 - Mark it with the tools: Remove, Wording, Button, Move, Copy+move, Pen, Note, Red frame, or your own.
 - **Select (V)** moves marks. It also picks any part of the frozen screen, even outside the box: ⌘C copies it and ⌘V pastes it into the box.
-- Click **Send** (or press Return) for the last session, or **▾** to pick a session.
+- Click **Send** (or press Return). The Send window shows the picture and every numbered request, which you can edit, plus a box for a note about the whole markup and the session to send to. Return sends, Esc goes back to the markup.
 - **Copy** puts the picture and the words on the clipboard. **Discard** (or Esc) closes.
 
 Each palette has a ⋯ menu for Orientation (Vertical or Horizontal) and Size (Large or Small). Drag a palette by its dotted corner. Right-click the menu bar icon for **Edit tools…**.
 
 ## What a session receives
 
-Two pictures (marked and clean) saved in `~/.uandi/markups/<time>/`, and a numbered list. Each line gives the tool's intent, your words, where the mark is, and the words found under it.
+Two pictures (marked and clean) saved in `~/.uandi/markups/<time>/`, your note, and a short numbered list: the tool, the request, where the mark is, and the words found under it.
+
+How to read all that is in `~/.uandi/UandI-guide.md`, which UandI rewrites whenever the tools change. The first markup sent to a chat asks Claude to read the guide; later ones only name it.
 
 ## Parts
 

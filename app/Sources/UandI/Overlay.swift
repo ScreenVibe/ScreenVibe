@@ -14,6 +14,7 @@ final class OverlayController {
     let actionsPalette = Palette(key: "actions")
     var onClose: (() -> Void)?
     private var toolsObserver: Any?
+    private var sendWindow: SendWindow?
 
     init(frozen: Frozen) {
         self.frozen = frozen
@@ -58,6 +59,8 @@ final class OverlayController {
     }
 
     func close() {
+        sendWindow?.close()
+        sendWindow = nil
         toolsPalette.orderOut(nil)
         actionsPalette.orderOut(nil)
         window.orderOut(nil)
@@ -97,21 +100,10 @@ final class OverlayController {
         let copy = Tile(symbol: large ? "" : "doc.on.doc", label: "Copy", large: large, wide: true)
         copy.fillColor = NSColor.white.withAlphaComponent(0.14)
         copy.onClick = { [weak self] in self?.copyMarkup() }
-        let last = Sessions.lastAlive()
-        let send = Tile(symbol: "paperplane.fill", label: last.map { "Send to \($0.label)" } ?? "Send", large: large, wide: true)
+        let send = Tile(symbol: "paperplane.fill", label: "Send", large: large, wide: true)
         send.fillColor = NSColor(hex: "#D6342C")
-        send.onClick = { [weak self, weak send] in
-            guard let self else { return }
-            if let s = Sessions.lastAlive() { self.send(to: s) } else if let send { self.sessionMenu().popUp(positioning: nil,
-                at: CGPoint(x: 0, y: send.bounds.height + 4), in: send) }
-        }
-        let pick = Tile(symbol: "chevron.down", label: "Pick a session", large: false)
-        pick.fillColor = NSColor(hex: "#B02A23")
-        pick.onClick = { [weak self, weak pick] in
-            guard let self, let pick else { return }
-            self.sessionMenu().popUp(positioning: nil, at: CGPoint(x: 0, y: pick.bounds.height + 4), in: pick)
-        }
-        return [discard, copy, send, pick]
+        send.onClick = { [weak self] in self?.openSend() }
+        return [discard, copy, send]
     }
 
     func placePalettes() {
@@ -157,25 +149,6 @@ final class OverlayController {
 
     // MARK: actions
 
-    private func sessionMenu() -> NSMenu {
-        let m = NSMenu()
-        m.autoenablesItems = false
-        let live = Sessions.alive()
-        if live.isEmpty {
-            let i = NSMenuItem(title: "No open Claude Code session has the UandI add-on.", action: nil, keyEquivalent: "")
-            i.isEnabled = false
-            m.addItem(i)
-        }
-        let lastId = Sessions.lastId
-        for s in live {
-            let i = ClosureMenuItem(title: s.menuTitle) { [weak self] in self?.send(to: s) }
-            if #available(macOS 14.4, *) { i.subtitle = s.cwd }
-            i.state = s.sessionId == lastId ? .on : .off
-            m.addItem(i)
-        }
-        return m
-    }
-
     func copyMarkup() {
         guard let out = Output.make(frozen: frozen, crop: canvas.outputArea, marks: canvas.marks) else { return }
         Output.copyToPasteboard(out)
@@ -183,8 +156,31 @@ final class OverlayController {
         Toast.show("Copied the markup and its words", on: frozen.screen)
     }
 
-    func send(to s: SessionInfo) {
-        guard let out = Output.make(frozen: frozen, crop: canvas.outputArea, marks: canvas.marks) else { return }
+    /// Shows the Send window over the markup. Return there sends, Esc comes back here.
+    func openSend() {
+        if let w = sendWindow { w.makeKeyAndOrderFront(nil); return }
+        guard let preview = Output.preview(frozen: frozen, crop: canvas.outputArea, marks: canvas.marks) else { return }
+        let w = SendWindow(preview: preview, marks: canvas.marks)
+        w.onCancel = { [weak self] in self?.closeSendWindow() }
+        w.onSend = { [weak self] requests, note, session in self?.send(to: session, requests: requests, note: note) }
+        sendWindow = w
+        w.present(on: frozen.screen)
+    }
+
+    private func closeSendWindow() {
+        sendWindow?.close()
+        sendWindow = nil
+        window.makeKeyAndOrderFront(nil)
+        window.makeFirstResponder(canvas)
+    }
+
+    private func send(to s: SessionInfo, requests: [String], note: String) {
+        var marks = canvas.marks
+        for i in marks.indices where i < requests.count {
+            if requests[i] != Output.sentence(for: marks[i]) { marks[i].note = requests[i] }
+        }
+        guard let out = Output.make(frozen: frozen, crop: canvas.outputArea, marks: marks, note: note,
+                                    briefed: Sessions.isBriefed(s)) else { return }
         do {
             try Sessions.deliver(out, to: s)
             Sessions.lastId = s.sessionId
@@ -196,10 +192,6 @@ final class OverlayController {
             a.informativeText = error.localizedDescription
             a.runModal()
         }
-    }
-
-    func sendToLast() {
-        if let s = Sessions.lastAlive() { send(to: s) }
     }
 }
 
@@ -538,7 +530,7 @@ final class Canvas: NSView, NSTextFieldDelegate {
             if let s = selected { pushUndo(); marks.remove(at: s); selected = nil; needsDisplay = true }
             return
         case 36, 76: // Return
-            controller?.sendToLast()
+            controller?.openSend()
             return
         default: break
         }

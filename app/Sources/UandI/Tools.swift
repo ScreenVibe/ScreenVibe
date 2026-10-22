@@ -82,6 +82,7 @@ final class ToolStore {
         let enc = JSONEncoder()
         enc.outputFormatting = [.prettyPrinted, .sortedKeys]
         if let data = try? enc.encode(tools) { try? data.write(to: url) }
+        Guide.write()
         NotificationCenter.default.post(name: ToolStore.didChange, object: nil)
     }
 

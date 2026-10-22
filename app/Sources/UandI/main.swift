@@ -16,6 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             b.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
         registerHotKey()
+        Guide.write()
         let args = CommandLine.arguments
         if let i = args.firstIndex(of: "--demo"), i + 1 < args.count { demo(path: args[i + 1]) }
     }
@@ -30,6 +31,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         overlay = o
         o.show()
         o.canvas.loadDemo()
+        if ProcessInfo.processInfo.environment["UANDI_DEMO_SEND"] != nil {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                o.openSend()
+                if let path = ProcessInfo.processInfo.environment["UANDI_DUMP_SEND"], let v = NSApp.keyWindow?.contentView,
+                   let rep = v.bitmapImageRepForCachingDisplay(in: v.bounds) {
+                    v.cacheDisplay(in: v.bounds, to: rep)
+                    try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
+                }
+            }
+        }
         if let dump = ProcessInfo.processInfo.environment["UANDI_DUMP"] {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
                 let v = o.canvas
