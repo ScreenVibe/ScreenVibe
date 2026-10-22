@@ -159,6 +159,7 @@ final class OverlayController {
     // MARK: actions
 
     func copyMarkup() {
+        canvas.commitEditor()
         guard let out = Output.make(frozen: frozen, crop: canvas.outputArea, marks: canvas.marks) else { return }
         Output.copyToPasteboard(out)
         close()
@@ -168,6 +169,7 @@ final class OverlayController {
     /// Shows the Send window over the markup. Return there sends, Esc comes back here.
     func openSend() {
         if let w = sendWindow { w.makeKeyAndOrderFront(nil); return }
+        canvas.commitEditor()  // words still being typed go with the markup
         guard let preview = Output.preview(frozen: frozen, crop: canvas.outputArea, marks: canvas.marks) else { return }
         let w = SendWindow(preview: preview, marks: canvas.marks)
         w.onCancel = { [weak self] in self?.closeSendWindow() }
@@ -330,6 +332,14 @@ final class Canvas: NSView, NSTextFieldDelegate {
         let env = ProcessInfo.processInfo.environment
         if let n = env["UANDI_DEMO_NOTE"], let i = marks.firstIndex(where: { $0.tool?.id == "wording" }) { marks[i].extra = n }
         if env["UANDI_DEMO_CROP"] != nil { setCrop() }
+        if let typed = env["UANDI_DEMO_TYPED"], let t = tools.first(where: { $0.shape == .text }) {
+            // Test only: a new note whose words are typed but not yet committed with Return.
+            var m = Mark(kind: .tool(t))
+            m.rect = CGRect(x: c.minX + 60, y: c.maxY - 60, width: 0, height: 0)
+            marks.append(m)
+            openEditor(for: marks.count - 1, isNew: true)
+            (editor?.field.currentEditor() as? NSTextView)?.insertText(typed, replacementRange: NSRange(location: 0, length: 0))
+        }
         if env["UANDI_DEMO_TARGET"] != nil, let i = marks.firstIndex(where: { $0.isBoxArrow }) {
             marks[i].targetSize = CGSize(width: marks[i].rect.width * 1.8, height: marks[i].rect.height * 2.2)
             selected = i
@@ -765,10 +775,10 @@ final class Canvas: NSView, NSTextFieldDelegate {
         window?.makeFirstResponder(prompt.field)
     }
 
-    private func commitEditor(cancel: Bool = false) {
+    func commitEditor(cancel: Bool = false) {
         guard let e = editor else { return }
         editor = nil
-        let text = e.field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = (e.field.currentEditor()?.string ?? e.field.stringValue).trimmingCharacters(in: .whitespacesAndNewlines)
         e.removeFromSuperview()
         if e.index < marks.count {
             if e.isNote {
