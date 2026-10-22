@@ -125,6 +125,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 NSWorkspace.shared.open(dir)
             })
             m.addItem(.separator())
+            m.addItem(ClosureMenuItem(title: "About UandI") {
+                let credit = NSAttributedString(string: "Created by Vibe Coding prodigy Hanaan",
+                    attributes: [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.labelColor,
+                                 .paragraphStyle: { let p = NSMutableParagraphStyle(); p.alignment = .center; return p }()])
+                NSApp.activate(ignoringOtherApps: true)
+                NSApp.orderFrontStandardAboutPanel(options: [.credits: credit])
+            })
             m.addItem(ClosureMenuItem(title: "Quit UandI") { NSApp.terminate(nil) })
             statusItem.menu = m
             statusItem.button?.performClick(nil)
