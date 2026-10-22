@@ -3,7 +3,7 @@ import AppKit
 /// Opens on Send: the marked picture, every numbered request (editable), a note for the whole markup and the session.
 /// Return sends, Esc goes back to the markup.
 final class SendWindow: NSPanel, NSTextFieldDelegate {
-    var onSend: ((_ requests: [String], _ markNotes: [String], _ note: String, _ session: SessionInfo) -> Void)?
+    var onSend: ((_ words: [String], _ markNotes: [String?], _ note: String, _ session: SessionInfo) -> Void)?
     var onCancel: (() -> Void)?
 
     private static let columnWidth: CGFloat = 480
@@ -45,11 +45,12 @@ final class SendWindow: NSPanel, NSTextFieldDelegate {
         column.spacing = 12
         for (i, m) in marks.enumerated() {
             let field = GrowingField(minHeight: 0)
-            field.stringValue = m.note ?? Output.sentence(for: m)
+            // A tool's own words when it asks for them; otherwise the mark's note.
+            field.stringValue = m.asksForWords ? m.text : m.extra
             field.delegate = self
             fields.append(field)
             var noteField: GrowingField?
-            if !m.extra.isEmpty {
+            if m.asksForWords, !m.extra.isEmpty {
                 let f = GrowingField(minHeight: 0)
                 f.stringValue = m.extra
                 f.delegate = self
@@ -197,7 +198,7 @@ final class SendWindow: NSPanel, NSTextFieldDelegate {
     @objc private func sendPressed() {
         let i = popup.indexOfSelectedItem
         guard i >= 0, i < sessions.count else { return }
-        let extras = fields.indices.map { markNotes[$0]?.text ?? "" }
+        let extras = fields.indices.map { markNotes[$0]?.text }
         onSend?(fields.map(\.text), extras, note.text, sessions[i])
     }
 

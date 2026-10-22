@@ -92,23 +92,6 @@ enum Output {
 
     // MARK: the message
 
-    /// The request a mark makes, as the Send window first shows it: the tool's intent plus the user's words.
-    static func sentence(for m: Mark) -> String {
-        guard case .tool(let t) = m.kind else { return "Put this copied piece here." }
-        var intent = t.intent.trimmingCharacters(in: .whitespaces)
-        // A note tool's intent is often just its name ("Note"), which the line already starts with.
-        if !m.text.isEmpty, intent.trimmingCharacters(in: .punctuationCharacters).lowercased() == t.name.lowercased() {
-            return "“\(m.text)”"
-        }
-        if !m.text.isEmpty {
-            if intent.hasSuffix(".") || intent.hasSuffix(":") { intent.removeLast() }
-            intent += t.shape == .text ? ": “\(m.text)”." : " “\(m.text)”."
-        } else if !intent.isEmpty && !intent.hasSuffix(".") {
-            intent += "."
-        }
-        return intent
-    }
-
     static func name(of m: Mark) -> String { m.tool?.name ?? "Pasted piece" }
 
     static func describe(frozen: Frozen, crop: CGRect, marks: [Mark], words: [String], markedURL: URL, cleanURL: URL,
@@ -136,9 +119,9 @@ enum Output {
         lines.append("")
         if marks.isEmpty { lines.append("No marks: the picture\(note.isEmpty ? "" : " and the note") is the whole message.") }
         for (i, m) in marks.enumerated() {
-            let request = (m.note ?? sentence(for: m)).trimmingCharacters(in: .whitespacesAndNewlines)
-            var line = "\(i + 1). \(name(of: m))" + (request.isEmpty ? "." : ": \(request)")
-            if !line.hasSuffix(".") && !line.hasSuffix("?") && !line.hasSuffix("!") { line += "." }
+            // The tool's name says what it means (the guide has each one); only the user's own words follow it.
+            let said = m.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            var line = "\(i + 1). \(name(of: m))" + (said.isEmpty ? "." : ": “\(said)”.")
             switch m.kind {
             case .pasted(_, let source):
                 line += " Area \(box(m.rect))."

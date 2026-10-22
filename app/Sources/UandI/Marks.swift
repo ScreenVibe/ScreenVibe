@@ -13,7 +13,6 @@ struct Mark {
     var end: CGPoint = .zero          // arrow end, or where a box+arrow points
     var points: [CGPoint] = []        // pen
     var text: String = ""
-    var note: String?                 // the request as edited in the Send window
     var extra = ""                    // the user's own note on this mark, from its note button
     var targetSize: CGSize?           // where a box+arrow points, once sized on its own; else the source's size
 
@@ -56,6 +55,9 @@ struct Mark {
     }
 
     var isBoxArrow: Bool { tool?.shape == .boxArrow }
+
+    /// Tools that ask for words when drawn (Wording, Button, Note…); the others carry only a note.
+    var asksForWords: Bool { tool?.ask != nil || tool?.shape == .text }
 
     func hit(_ p: CGPoint) -> Bool {
         if case .tool(let t) = kind, t.shape == .boxArrow, target.insetBy(dx: -4, dy: -4).contains(p) { return true }

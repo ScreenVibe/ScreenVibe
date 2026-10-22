@@ -173,8 +173,8 @@ final class OverlayController {
         guard let preview = Output.preview(frozen: frozen, crop: canvas.outputArea, marks: canvas.marks) else { return }
         let w = SendWindow(preview: preview, marks: canvas.marks)
         w.onCancel = { [weak self] in self?.closeSendWindow() }
-        w.onSend = { [weak self] requests, markNotes, note, session in
-            self?.send(to: session, requests: requests, markNotes: markNotes, note: note)
+        w.onSend = { [weak self] words, markNotes, note, session in
+            self?.send(to: session, words: words, markNotes: markNotes, note: note)
         }
         sendWindow = w
         w.present(on: frozen.screen)
@@ -187,11 +187,15 @@ final class OverlayController {
         window.makeFirstResponder(canvas)
     }
 
-    private func send(to s: SessionInfo, requests: [String], markNotes: [String], note: String) {
+    private func send(to s: SessionInfo, words: [String], markNotes: [String?], note: String) {
         var marks = canvas.marks
-        for i in marks.indices where i < requests.count {
-            if requests[i] != Output.sentence(for: marks[i]) { marks[i].note = requests[i] }
-            if i < markNotes.count, !marks[i].extra.isEmpty { marks[i].extra = markNotes[i] }
+        for i in marks.indices where i < words.count {
+            if marks[i].asksForWords {
+                marks[i].text = words[i]
+                if i < markNotes.count, let n = markNotes[i] { marks[i].extra = n }
+            } else {
+                marks[i].extra = words[i]
+            }
         }
         guard let out = Output.make(frozen: frozen, crop: canvas.outputArea, marks: marks, note: note,
                                     briefed: Sessions.isBriefed(s)) else { return }

@@ -26,12 +26,13 @@ enum Guide {
 
         ## Reading a line
 
-        `3. Wording: Change the wording to “Save”. Area 30,130 140×40. Words there: “Submit”.`
+        `3. Wording: “Save”. Area 30,130 140×40. Words there: “Submit”.`
 
-        - The tool's name comes first, then the request. The user may have edited the request before sending, so follow it as written.
+        - The tool's name comes first. It says what the user wants; each tool's meaning is under The tools below.
+        - Words in quotes after the name are the user's answer to the tool's question, such as the new wording or a button's label.
         - Positions are in points from the top-left corner of the pictures, written `x,y width×height`. The markup says how many pixels make a point ("saved at 2×").
         - `→` points to where a Move or Copy+move goes. When the size there differs from the area's size, the piece should take the new size.
-        - `Note:` at the end of a line is the user's own note on that mark. It adds to the request.
+        - `Note:` at the end of a line is the user's own note on that mark. It adds to what the tool means.
         - "Words there" is text UandI read from the clean picture inside the mark. Use it to find the element in the code. It can contain small reading mistakes.
 
         ## The tools
