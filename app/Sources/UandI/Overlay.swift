@@ -16,6 +16,7 @@ final class OverlayController {
     var onClose: (() -> Void)?
     private var toolsObserver: Any?
     private var sendWindow: SendWindow?
+    private(set) weak var swatches: Swatches?
 
     init(frozen: Frozen) {
         self.frozen = frozen
@@ -99,6 +100,11 @@ final class OverlayController {
                         large: large)
         edit.onClick = { ToolEditorWindow.show() }
         tiles.append(edit)
+        let colors = Swatches(large: large, vertical: toolsPalette.vertical)
+        colors.current = { [weak self] in self?.canvas.currentPaint }
+        colors.onPick = { [weak self] in self?.canvas.pick($0) }
+        swatches = colors
+        tiles.append(colors)
         return tiles
     }
 
@@ -223,7 +229,9 @@ final class Canvas: NSView, NSTextFieldDelegate {
     private(set) var crop: CGRect?
     private(set) var marks: [Mark] = []
     private(set) var tool: ToolDef?
-    private var selected: Int?
+    private var selected: Int? { didSet { controller?.swatches?.needsDisplay = true } }
+    /// The color for the next marks, picked with nothing selected. Lasts for this markup.
+    private var nextPaint: Swatch? { didSet { controller?.swatches?.needsDisplay = true } }
     private var pixelSelection: CGRect?
     private var clip: (image: NSImage, source: CGRect)?
     private var undoStack: [(marks: [Mark], crop: CGRect?)] = []
@@ -235,6 +243,7 @@ final class Canvas: NSView, NSTextFieldDelegate {
         case moving(Int, CGPoint)
         case resizing(Int, corner: Int)
         case resizingTarget(Int, corner: Int)
+        case movingStart(Int)
         case movingEnd(Int)
         case movingTarget(Int, CGPoint)
         case resizingCrop(handle: Int)
@@ -294,14 +303,33 @@ final class Canvas: NSView, NSTextFieldDelegate {
         if let s = selected, s < marks.count {
             let m = marks[s]
             if m.isBoxArrow, let k = m.target.corners.firstIndex(where: { near(p, $0) }) { Cursors.resize(handle: k).set(); return }
-            if m.tool?.shape == .arrow || m.isBoxArrow, near(p, m.end) { Cursors.move.set(); return }
-            if m.tool?.shape != .pen, m.tool?.shape != .text, m.tool?.shape != .arrow,
+            if m.tool?.shape.isLine == true || m.isBoxArrow, near(p, m.end) { Cursors.move.set(); return }
+            if m.tool?.shape != .pen, m.tool?.shape != .text, m.tool?.shape.isLine != true,
                let k = m.area.corners.firstIndex(where: { near(p, $0) }) { Cursors.resize(handle: k).set(); return }
         }
         if marks.contains(where: { $0.hit(p) }) { Cursors.move.set(); return }
         NSCursor.crosshair.set()
     }
 
+
+    /// The color the palette shows as picked: the selected mark's, else the one for the next marks.
+    var currentPaint: Swatch? {
+        if let s = selected, s < marks.count { return marks[s].paint }
+        return nextPaint
+    }
+
+    /// Recolors the selected mark, or with nothing selected, sets the color of the next marks. Picking it again goes back to the tool's color.
+    func pick(_ w: Swatch) {
+        commitEditor()
+        if let s = selected, s < marks.count {
+            pushUndo()
+            marks[s].paint = marks[s].paint == w ? nil : w
+            controller?.swatches?.needsDisplay = true
+        } else {
+            nextPaint = nextPaint == w ? nil : w
+        }
+        needsDisplay = true
+    }
 
     func setCrop() {
         commitEditor()
@@ -332,6 +360,11 @@ final class Canvas: NSView, NSTextFieldDelegate {
         if let t = tool("button") { var m = Mark(kind: .tool(t)); m.rect = CGRect(x: c.minX + 220, y: c.minY + 130, width: 130, height: 44); m.text = ProcessInfo.processInfo.environment["UANDI_DEMO_LABEL"] ?? "Export"; marks.append(m) }
         if let t = tool("move") { var m = Mark(kind: .tool(t)); m.rect = CGRect(x: c.minX + 30, y: c.minY + 230, width: 110, height: 40); m.end = CGPoint(x: c.maxX - 90, y: c.minY + 250); marks.append(m) }
         if let t = tool("note") { var m = Mark(kind: .tool(t)); m.rect = CGRect(x: c.minX + 400, y: c.minY + 40, width: 0, height: 0); m.text = "Too much space up here"; marks.append(m) }
+        let paints = Dictionary(uniqueKeysWithValues: Swatch.all.map { ($0.name, $0) })
+        if let t = tool("rect") { var m = Mark(kind: .tool(t)); m.rect = CGRect(x: c.minX + 420, y: c.minY + 120, width: 120, height: 70); m.paint = paints["green"]; marks.append(m) }
+        if let t = tool("oval") { var m = Mark(kind: .tool(t)); m.rect = CGRect(x: c.minX + 570, y: c.minY + 120, width: 120, height: 70); m.paint = paints["yellow"]; marks.append(m) }
+        if let t = tool("line") { var m = Mark(kind: .tool(t)); m.start = CGPoint(x: c.minX + 420, y: c.minY + 230); m.end = CGPoint(x: c.minX + 560, y: c.minY + 290); m.paint = paints["cyan"]; marks.append(m) }
+        if let t = tool("arrow") { var m = Mark(kind: .tool(t)); m.start = CGPoint(x: c.minX + 590, y: c.minY + 300); m.end = CGPoint(x: c.minX + 690, y: c.minY + 220); m.paint = paints["white"]; marks.append(m) }
         controller?.placePalettes()
         needsDisplay = true
         let env = ProcessInfo.processInfo.environment
@@ -485,9 +518,10 @@ final class Canvas: NSView, NSTextFieldDelegate {
             return
         }
         var m = Mark(kind: .tool(t))
+        m.paint = nextPaint
         switch t.shape {
         case .box, .oval, .boxArrow: m.rect = CGRect(origin: p, size: .zero)
-        case .arrow: m.start = p; m.end = p
+        case .arrow, .line: m.start = p; m.end = p
         case .pen: m.points = [p]
         case .text:
             m.rect = CGRect(origin: p, size: .zero)
@@ -511,7 +545,8 @@ final class Canvas: NSView, NSTextFieldDelegate {
                 return
             }
             if m.isBoxArrow, near(p, m.end) { pushUndo(); drag = .movingEnd(s); return }
-            if let t = m.tool, t.shape == .arrow {
+            if let t = m.tool, t.shape.isLine {
+                if near(p, m.start) { pushUndo(); drag = .movingStart(s); return }
                 if near(p, m.end) { pushUndo(); drag = .movingEnd(s); return }
             } else if m.tool?.shape != .pen && m.tool?.shape != .text {
                 let a = m.area
@@ -562,7 +597,7 @@ final class Canvas: NSView, NSTextFieldDelegate {
             controller?.placePalettes()
         case .drawing(var m, let s):
             switch m.tool?.shape {
-            case .arrow: m.end = p
+            case .arrow, .line: m.end = p
             case .pen: m.points.append(p)
             default: m.rect = CGRect(p1: s, p2: p)
             }
@@ -576,6 +611,8 @@ final class Canvas: NSView, NSTextFieldDelegate {
                          CGPoint(x: a.maxX, y: a.minY), CGPoint(x: a.minX, y: a.minY)][corner]
             marks[i].rect = CGRect(p1: fixed, p2: p)
             drag = .resizing(i, corner: marks[i].rect.cornerIndex(of: p))
+        case .movingStart(let i):
+            marks[i].start = p
         case .movingEnd(let i):
             marks[i].end = p
         case .movingTarget(let i, let last):
@@ -764,7 +801,7 @@ final class Canvas: NSView, NSTextFieldDelegate {
             prompt = TextPrompt(question: "Note for \(Output.name(of: m)) (Mark \(i + 1))", text: m.extra, color: m.color)
         } else {
             guard let t = m.tool, let question = t.ask ?? (t.shape == .text ? "What is the note?" : nil) else { return }
-            prompt = TextPrompt(question: question, text: m.text, color: t.color)
+            prompt = TextPrompt(question: question, text: m.text, color: m.color)
         }
         prompt.isNote = note
         let a = m.area

@@ -1,6 +1,6 @@
 import AppKit
 
-/// A clickable square on a palette: symbol, and in Large size a name under it.
+/// A clickable square on a palette: symbol, and when Expanded a name under it.
 final class Tile: NSView {
     var onClick: (() -> Void)?
     var isOn = false { didSet { needsDisplay = true } }
@@ -27,7 +27,7 @@ final class Tile: NSView {
             let w = (label as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 13, weight: .semibold)]).width
             size = CGSize(width: ceil(w) + (symbol.isEmpty ? 28 : 46), height: 36)
         } else {
-            size = large ? CGSize(width: 62, height: 52) : CGSize(width: 34, height: 34)
+            size = large ? CGSize(width: 62, height: 52) : CGSize(width: 28, height: 28)
         }
         widthAnchor.constraint(equalToConstant: size.width).isActive = true
         heightAnchor.constraint(equalToConstant: size.height).isActive = true
@@ -46,7 +46,7 @@ final class Tile: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        let bg = NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: 8, yRadius: 8)
+        let bg = NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: large ? 8 : 6, yRadius: large ? 8 : 6)
         if let f = fillColor {
             (hovering ? f.blended(withFraction: 0.15, of: .white)! : f).setFill()
             bg.fill()
@@ -57,7 +57,7 @@ final class Tile: NSView {
             NSColor.white.withAlphaComponent(0.10).setFill()
             bg.fill()
         }
-        let conf = NSImage.SymbolConfiguration(pointSize: large && !wide ? 17 : 15, weight: .medium)
+        let conf = NSImage.SymbolConfiguration(pointSize: large ? (wide ? 15 : 17) : 13, weight: .medium)
         let img = symbol.isEmpty ? nil : NSImage(systemSymbolName: symbol, accessibilityDescription: label)?
             .withSymbolConfiguration(conf)
         let labelAttrs: [NSAttributedString.Key: Any] = [
@@ -94,15 +94,81 @@ final class Tile: NSView {
     }
 }
 
+/// The color dots under the tools, two to a row (two rows when the palette is horizontal), after a thin line.
+final class Swatches: NSView {
+    var current: (() -> Swatch?)?
+    var onPick: ((Swatch) -> Void)?
+    private let large: Bool
+    private let vertical: Bool
+    private var dot: CGFloat { large ? 22 : 11 }
+    private var gap: CGFloat { large ? 8 : 4 }
+    private var lead: CGFloat { large ? 12 : 7 }     // room for the line before the dots
+
+    init(large: Bool, vertical: Bool) {
+        self.large = large
+        self.vertical = vertical
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        let tile: CGFloat = large ? 62 : 28
+        let long = lead + 4 * dot + 3 * gap + (large ? 4 : 2)
+        widthAnchor.constraint(equalToConstant: vertical ? tile : long).isActive = true
+        heightAnchor.constraint(equalToConstant: vertical ? long : (large ? 52 : 28)).isActive = true
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override var isFlipped: Bool { true }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    private func rect(_ k: Int) -> CGRect {
+        let along = k / 2, across = k % 2
+        let a = lead + CGFloat(along) * (dot + gap)
+        let mid = (vertical ? bounds.width : bounds.height) / 2
+        let b = across == 0 ? mid - gap / 2 - dot : mid + gap / 2
+        return vertical ? CGRect(x: b, y: a, width: dot, height: dot) : CGRect(x: a, y: b, width: dot, height: dot)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        let p = convert(event.locationInWindow, from: nil)
+        if let k = Swatch.all.indices.first(where: { rect($0).insetBy(dx: -gap / 2, dy: -gap / 2).contains(p) }) {
+            onPick?(Swatch.all[k])
+        }
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.white.withAlphaComponent(0.15).setFill()
+        let line = lead / 2 - 0.5
+        (vertical ? CGRect(x: 6, y: line, width: bounds.width - 12, height: 1)
+                  : CGRect(x: line, y: 6, width: 1, height: bounds.height - 12)).fill()
+        let on = current?()
+        for (k, w) in Swatch.all.enumerated() {
+            let r = rect(k)
+            w.color.setFill()
+            NSBezierPath(ovalIn: r).fill()
+            NSColor.white.withAlphaComponent(0.35).setStroke()
+            let edge = NSBezierPath(ovalIn: r.insetBy(dx: 0.5, dy: 0.5))
+            edge.lineWidth = 1
+            edge.stroke()
+            if w == on {
+                NSColor.white.setStroke()
+                let ring = NSBezierPath(ovalIn: r.insetBy(dx: large ? -3 : -2, dy: large ? -3 : -2))
+                ring.lineWidth = large ? 2 : 1.5
+                ring.stroke()
+            }
+        }
+    }
+}
+
 /// The dotted corner a palette is dragged by.
 final class Grip: NSView {
     var onMoved: (() -> Void)?
 
-    init(vertical: Bool) {
+    init(vertical: Bool, large: Bool) {
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
-        widthAnchor.constraint(equalToConstant: vertical ? 34 : 16).isActive = true
-        heightAnchor.constraint(equalToConstant: vertical ? 16 : 34).isActive = true
+        let across: CGFloat = large ? 34 : 28, along: CGFloat = large ? 16 : 10
+        widthAnchor.constraint(equalToConstant: vertical ? across : along).isActive = true
+        heightAnchor.constraint(equalToConstant: vertical ? along : across).isActive = true
         toolTip = "Drag to move"
     }
 
@@ -168,7 +234,7 @@ final class Palette: NSPanel {
         effect.appearance = NSAppearance(named: .darkAqua)
         effect.wantsLayer = true
         effect.layer?.backgroundColor = NSColor(hex: "#262629")!.cgColor
-        effect.layer?.cornerRadius = 12
+        effect.layer?.cornerRadius = 12  // 9 when Condensed, set in rebuild
         effect.layer?.masksToBounds = true
         contentView = effect
     }
@@ -179,13 +245,15 @@ final class Palette: NSPanel {
     func rebuild() {
         let keepTopLeft = frame.size == .zero ? nil : CGPoint(x: frame.minX, y: frame.maxY)
         effect.subviews.forEach { $0.removeFromSuperview() }
+        effect.layer?.cornerRadius = large ? 12 : 9
         let stack = NSStackView()
         stack.orientation = vertical ? .vertical : .horizontal
-        stack.spacing = 3
-        stack.edgeInsets = NSEdgeInsets(top: 6, left: 6, bottom: 6, right: 6)
+        let edge: CGFloat = large ? 6 : 3
+        stack.spacing = large ? 3 : 1
+        stack.edgeInsets = NSEdgeInsets(top: edge, left: edge, bottom: edge, right: edge)
         stack.translatesAutoresizingMaskIntoConstraints = false
 
-        let grip = Grip(vertical: vertical)
+        let grip = Grip(vertical: vertical, large: large)
         grip.onMoved = { [weak self] in
             guard let self else { return }
             self.placedTopLeft = CGPoint(x: self.frame.minX, y: self.frame.maxY)
@@ -223,8 +291,8 @@ final class Palette: NSPanel {
         m.addItem(item("Vertical", on: vertical) { $0.vertical = true })
         m.addItem(item("Horizontal", on: !vertical) { $0.vertical = false })
         m.addItem(NSMenuItem.sectionHeader(title: "Size"))
-        m.addItem(item("Large, with names", on: large) { $0.large = true })
-        m.addItem(item("Small, symbols only", on: !large) { $0.large = false })
+        m.addItem(item("Expanded, with names", on: large) { $0.large = true })
+        m.addItem(item("Condensed, symbols only", on: !large) { $0.large = false })
         if placedTopLeft != nil {
             m.addItem(.separator())
             m.addItem(item("Put it back beside the box", on: false) { $0.placedTopLeft = nil })

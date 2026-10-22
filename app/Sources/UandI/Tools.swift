@@ -2,13 +2,17 @@ import AppKit
 
 /// The drawn form a tool makes.
 enum ToolShape: String, Codable, CaseIterable {
-    case box, oval, arrow, boxArrow, pen, text
+    case box, oval, arrow, line, boxArrow, pen, text
+
+    /// Drawn from a start point to an end point.
+    var isLine: Bool { self == .arrow || self == .line }
 
     var title: String {
         switch self {
         case .box: return "Box"
         case .oval: return "Oval"
         case .arrow: return "Arrow"
+        case .line: return "Line"
         case .boxArrow: return "Box + arrow"
         case .pen: return "Free pen"
         case .text: return "Text"
@@ -102,8 +106,14 @@ final class ToolStore {
                 intent: "Look at this drawing.", shortcut: "p"),
         ToolDef(id: "note", name: "Note", symbol: "text.bubble", shape: .text, colorHex: "#D61F8C",
                 intent: "Note", ask: "What is the note?", shortcut: "n"),
-        ToolDef(id: "redframe", name: "Red frame", symbol: "square", shape: .box, colorHex: "#E0261B", lineWidth: 3,
-                intent: "Make this match the rest of the screen.", ask: "Match what?", shortcut: "r"),
+        ToolDef(id: "rect", name: "Rect", symbol: "rectangle", shape: .box, colorHex: "#E0261B", lineWidth: 3,
+                intent: "Look here.", shortcut: "r"),
+        ToolDef(id: "line", name: "Line", symbol: "line.diagonal", shape: .line, colorHex: "#E0261B", lineWidth: 3,
+                intent: "Look along this line.", shortcut: "l"),
+        ToolDef(id: "arrow", name: "Arrow", symbol: "arrow.up.right", shape: .arrow, colorHex: "#E0261B", lineWidth: 3,
+                intent: "Look where this points.", shortcut: "a"),
+        ToolDef(id: "oval", name: "Oval", symbol: "circle", shape: .oval, colorHex: "#E0261B", lineWidth: 3,
+                intent: "Look here.", shortcut: "o"),
     ]
 }
 
@@ -114,6 +124,12 @@ extension NSColor {
         guard s.count == 6, let v = UInt32(s, radix: 16) else { return nil }
         self.init(srgbRed: CGFloat((v >> 16) & 0xFF) / 255, green: CGFloat((v >> 8) & 0xFF) / 255,
                   blue: CGFloat(v & 0xFF) / 255, alpha: 1)
+    }
+
+    /// Light enough that words on it need to be dark (yellow, white).
+    var isLight: Bool {
+        let c = usingColorSpace(.sRGB) ?? self
+        return 0.299 * c.redComponent + 0.587 * c.greenComponent + 0.114 * c.blueComponent > 0.65
     }
 
     var hexString: String {

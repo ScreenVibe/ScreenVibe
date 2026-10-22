@@ -81,6 +81,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
         }
+        if let path = ProcessInfo.processInfo.environment["UANDI_DUMP_PALETTE"] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                if let v = o.toolsPalette.contentView, let rep = v.bitmapImageRepForCachingDisplay(in: v.bounds) {
+                    v.cacheDisplay(in: v.bounds, to: rep)
+                    try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
+                }
+            }
+        }
         if let dump = ProcessInfo.processInfo.environment["UANDI_DUMP"] {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
                 let v = o.canvas

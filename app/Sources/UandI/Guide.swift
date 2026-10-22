@@ -31,6 +31,7 @@ enum Guide {
         - The tool's name comes first. It says what the user wants; each tool's meaning is under The tools below.
         - Words in quotes after the name are the user's answer to the tool's question, such as the new wording or a button's label.
         - Positions are in points from the top-left corner of the pictures, written `x,y width×height`. The markup says how many pixels make a point ("saved at 2×").
+        - A color after the name, as in `4. Pen, green.`, is one the user picked for that mark. The tool's meaning stays the same; the note says what the color means, such as "green = keep".
         - `→` points to where a Move or Copy+move goes. When the size there differs from the area's size, the piece should take the new size.
         - `Note:` at the end of a line is the user's own note on that mark. It adds to what the tool means.
         - "Words there" is text UandI read from the clean picture inside the mark. Use it to find the element in the code. It can contain small reading mistakes.
@@ -69,6 +70,7 @@ enum Guide {
         case .box: parts.append("a box")
         case .oval: parts.append("an oval")
         case .arrow: parts.append("an arrow")
+        case .line: parts.append("a line")
         case .boxArrow: parts.append("a box with an arrow to a dashed box where it goes")
         case .pen: parts.append("a free drawing")
         case .text: parts.append("a note bubble")

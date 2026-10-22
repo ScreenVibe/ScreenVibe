@@ -6,13 +6,14 @@ Mark up any part of the screen and send it straight to a Claude Code session. No
 
 - Click **U&I** in the menu bar, or press ⌘⇧6. The screen freezes.
 - The whole screen starts as the picture. To send less, pick **Crop (K)** and drag a box, or drag its edges and corners. Hold Space and drag to move the box, with any tool.
-- Mark it with the tools: Remove, Wording, Button, Move, Copy+move, Pen, Note, Red frame, or your own.
+- Mark it with the tools: Remove, Wording, Button, Move, Copy+move, Pen, Note, Rect, Line, Arrow, Oval, or your own.
+- Pick a color under the tools to color the next marks, or the selected mark. Click it again to go back to the tool's color. The message names the color, so your note can say what it means.
 - Every mark has a round note button at its top-right corner. Click it to add a note for that mark.
 - **Select (V)** moves marks. It also picks any part of the frozen screen, even outside the box: ⌘C copies it and ⌘V pastes it into the box.
 - Click **Send** (or press Return). The Send window shows the picture and every numbered request, which you can edit, plus a box for a note about the whole markup and the session to send to. Return sends, Esc goes back to the markup.
 - **Copy** puts the picture and the words on the clipboard. **Discard** (or Esc) closes.
 
-Each palette has a ⋯ menu for Orientation (Vertical or Horizontal) and Size (Large or Small). Drag a palette by its dotted corner. Right-click the menu bar icon for **Edit tools…**.
+Each palette has a ⋯ menu for Orientation (Vertical or Horizontal) and Size (Expanded, with names, or Condensed, symbols only). Drag a palette by its dotted corner. Right-click the menu bar icon for **Edit tools…**.
 
 ## What a session receives
 

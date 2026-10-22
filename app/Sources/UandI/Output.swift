@@ -131,7 +131,7 @@ enum Output {
         for (i, m) in marks.enumerated() {
             // The tool's name says what it means (the guide has each one); only the user's own words follow it.
             let said = m.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            var line = "\(i + 1). \(name(of: m))" + (said.isEmpty ? "." : ": “\(said)”.")
+            var line = "\(i + 1). \(name(of: m))\(m.paint.map { ", \($0.name)" } ?? "")" + (said.isEmpty ? "." : ": “\(said)”.")
             switch m.kind {
             case .pasted(_, let source):
                 line += " Area \(box(m.rect))."
@@ -139,6 +139,7 @@ enum Output {
             case .tool(let t):
                 switch t.shape {
                 case .arrow: line += " Arrow \(pt(m.start)) → \(pt(m.end))."
+                case .line: line += " Line \(pt(m.start)) to \(pt(m.end))."
                 case .boxArrow: line += " Area \(box(m.rect)) → \(box(m.target))."
                 case .text: line += " At \(pt(m.rect.origin))."
                 default: line += " Area \(box(m.area))."

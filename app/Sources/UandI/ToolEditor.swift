@@ -162,7 +162,7 @@ private struct ToolPreview: NSViewRepresentable {
             m.rect = CGRect(x: 40, y: 22, width: 180, height: 52)
             m.text = t.ask == nil ? "" : "Sample words"
             switch t.shape {
-            case .arrow:
+            case .arrow, .line:
                 m.start = CGPoint(x: 40, y: 80)
                 m.end = CGPoint(x: 220, y: 30)
             case .boxArrow:

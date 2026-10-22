@@ -1,6 +1,18 @@
 import AppKit
 
 /// One thing drawn on the frozen screen. Coordinates are screen points, top-left origin.
+/// A color the user can give a mark from the palette. The message names it, and the user's note says what it means.
+struct Swatch: Equatable {
+    let name: String
+    let hex: String
+    var color: NSColor { NSColor(hex: hex)! }
+
+    static let all = [Swatch(name: "green", hex: "#18A050"), Swatch(name: "cyan", hex: "#00B4D8"),
+                      Swatch(name: "red", hex: "#E0261B"), Swatch(name: "magenta", hex: "#D61F8C"),
+                      Swatch(name: "yellow", hex: "#F5C400"), Swatch(name: "black", hex: "#000000"),
+                      Swatch(name: "gray", hex: "#8E8E93"), Swatch(name: "white", hex: "#FFFFFF")]
+}
+
 struct Mark {
     enum Kind {
         case tool(ToolDef)
@@ -15,6 +27,7 @@ struct Mark {
     var text: String = ""
     var extra = ""                    // the user's own note on this mark, from its note button
     var targetSize: CGSize?           // where a box+arrow points, once sized on its own; else the source's size
+    var paint: Swatch?                // a color picked from the palette, in place of the tool's
 
     var tool: ToolDef? {
         if case .tool(let t) = kind { return t }
@@ -22,6 +35,7 @@ struct Mark {
     }
 
     var color: NSColor {
+        if let paint { return paint.color }
         switch kind {
         case .tool(let t): return t.color
         case .pasted: return NSColor(hex: "#7A4FE0")!
@@ -32,7 +46,7 @@ struct Mark {
     var area: CGRect {
         guard let t = tool else { return rect }
         switch t.shape {
-        case .arrow: return CGRect(p1: start, p2: end)
+        case .arrow, .line: return CGRect(p1: start, p2: end)
         case .pen:
             guard let f = points.first else { return .zero }
             return points.reduce(CGRect(origin: f, size: .zero)) { $0.union(CGRect(origin: $1, size: .zero)) }
@@ -61,6 +75,12 @@ struct Mark {
 
     func hit(_ p: CGPoint) -> Bool {
         if case .tool(let t) = kind, t.shape == .boxArrow, target.insetBy(dx: -4, dy: -4).contains(p) { return true }
+        if case .tool(let t) = kind, t.shape.isLine {
+            // Near the line itself, not anywhere in the box around a slanted one.
+            let dx = end.x - start.x, dy = end.y - start.y, len2 = dx * dx + dy * dy
+            let k = len2 == 0 ? 0 : max(0, min(1, ((p.x - start.x) * dx + (p.y - start.y) * dy) / len2))
+            return hypot(p.x - (start.x + k * dx), p.y - (start.y + k * dy)) < 8
+        }
         return area.insetBy(dx: -6, dy: -6).contains(p)
     }
 
@@ -183,6 +203,12 @@ enum MarkDrawing {
                 }
             case .arrow:
                 arrow(from: m.start, to: m.end, color: color, width: t.lineWidth + 0.5)
+            case .line:
+                let path = NSBezierPath()
+                path.move(to: m.start)
+                path.line(to: m.end)
+                path.lineCapStyle = .round
+                stroke(path, color: color, width: t.lineWidth, dashed: t.dashed)
             case .pen:
                 guard m.points.count > 1 else { break }
                 let path = NSBezierPath()
@@ -201,7 +227,7 @@ enum MarkDrawing {
     }
 
     private static func tagPoint(_ m: Mark) -> CGPoint {
-        if let t = m.tool, t.shape == .arrow { return m.start }
+        if let t = m.tool, t.shape.isLine { return m.start }
         let a = m.area
         return CGPoint(x: a.minX, y: a.minY)
     }
@@ -210,7 +236,7 @@ enum MarkDrawing {
         guard !m.text.isEmpty else { return }
         if t.placement == .inside {
             let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 14, weight: .medium),
-                                                        .foregroundColor: t.color.blended(withFraction: 0.3, of: .black)!]
+                                                        .foregroundColor: m.color.isLight ? NSColor.black : m.color.blended(withFraction: 0.3, of: .black)!]
             let s = m.text as NSString
             let para = NSMutableParagraphStyle()
             para.alignment = .center
@@ -224,17 +250,17 @@ enum MarkDrawing {
             let pill = NSBezierPath(roundedRect: b, xRadius: 6, yRadius: 6)
             NSColor.white.setFill()
             pill.fill()
-            stroke(pill, color: t.color, width: 1.5, dashed: true)
+            stroke(pill, color: m.color.isLight ? .gray : m.color, width: 1.5, dashed: true)
             s.draw(with: CGRect(x: b.midX - wrap / 2, y: b.minY + 6, width: wrap, height: ceil(sz.height) + 2),
                    options: [.usesLineFragmentOrigin], attributes: a)
         } else {
-            bubble("“\(m.text)”", at: CGPoint(x: m.rect.minX, y: m.rect.maxY + 6), color: t.color, above: m.rect.minY - 6)
+            bubble("“\(m.text)”", at: CGPoint(x: m.rect.minX, y: m.rect.maxY + 6), color: m.color, above: m.rect.minY - 6)
         }
     }
 
     /// `above`: where a callout's bottom goes when there is no room under the mark.
     static func bubble(_ text: String, at p: CGPoint, color: NSColor, above: CGFloat? = nil) {
-        let attrs: [NSAttributedString.Key: Any] = [.font: calloutFont, .foregroundColor: NSColor.white]
+        let attrs: [NSAttributedString.Key: Any] = [.font: calloutFont, .foregroundColor: color.isLight ? NSColor.black : .white]
         let s = (text.isEmpty ? " " : text) as NSString
         let b = s.boundingRect(with: CGSize(width: 320, height: 1000), options: [.usesLineFragmentOrigin], attributes: attrs)
         var box = CGRect(x: p.x, y: p.y, width: ceil(b.width) + 18, height: ceil(b.height) + 10)
@@ -260,7 +286,7 @@ enum MarkDrawing {
         color.setFill()
         NSBezierPath(ovalIn: r).fill()
         NSGraphicsContext.restoreGraphicsState()
-        let attrs: [NSAttributedString.Key: Any] = [.font: tagFont, .foregroundColor: NSColor.white]
+        let attrs: [NSAttributedString.Key: Any] = [.font: tagFont, .foregroundColor: color.isLight ? NSColor.black : .white]
         let s = "\(n)" as NSString
         let sz = s.size(withAttributes: attrs)
         s.draw(at: CGPoint(x: r.midX - sz.width / 2, y: r.midY - sz.height / 2), withAttributes: attrs)
@@ -268,7 +294,7 @@ enum MarkDrawing {
 
     static func handles(_ m: Mark) {
         var pts: [CGPoint]
-        if let t = m.tool, t.shape == .arrow {
+        if let t = m.tool, t.shape.isLine {
             pts = [m.start, m.end]
         } else {
             let a = m.area
