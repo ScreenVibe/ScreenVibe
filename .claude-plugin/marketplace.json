@@ -1,0 +1,16 @@
+{
+  "name": "uandi",
+  "owner": {
+    "name": "Hanaan Rosenthal"
+  },
+  "metadata": {
+    "description": "UandI: mark up your screen and send it to Claude Code."
+  },
+  "plugins": [
+    {
+      "name": "uandi",
+      "source": "./mod",
+      "description": "Lets the UandI menu bar app send screen markups into this session."
+    }
+  ]
+}

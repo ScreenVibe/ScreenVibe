@@ -1,6 +1,7 @@
 #!/bin/zsh
-# Builds UandI.app, signs it with the Developer ID (so the Screen Recording permission
-# survives rebuilds), installs it to ~/Applications and starts it.
+# Builds UandI.app, signs it, installs it to ~/Applications and starts it.
+# Signing: SIGN_ID if set, else your first Developer ID or Apple Development certificate, else ad hoc.
+# With a certificate, the Screen Recording permission survives rebuilds; ad hoc, macOS asks again after each build.
 set -euo pipefail
 cd "$(dirname "$0")/app"
 
@@ -33,7 +34,9 @@ cat > "$PWD/.build/UandI.entitlements" <<'ENT'
   <key>com.apple.security.automation.apple-events</key><true/>
 </dict></plist>
 ENT
-codesign --force --options runtime --entitlements "$PWD/.build/UandI.entitlements" --sign "Developer ID Application: Hanaan Rosenthal (467NFKHC5S)" "$APP"
+SIGN_ID="${SIGN_ID:-$(security find-identity -v -p codesigning 2>/dev/null \
+  | grep -oE '"(Developer ID Application|Apple Development): [^"]+"' | head -1 | tr -d '"')}"
+codesign --force --options runtime --entitlements "$PWD/.build/UandI.entitlements" --sign "${SIGN_ID:--}" "$APP"
 codesign --verify --strict "$APP"
 open "$APP"
 echo "Installed and started $APP"
