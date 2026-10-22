@@ -3,7 +3,7 @@ import AppKit
 /// Opens on Send: the marked picture, every numbered request (editable), a note for the whole markup and the session.
 /// Return sends, Esc goes back to the markup.
 final class SendWindow: NSPanel, NSTextFieldDelegate {
-    var onSend: ((_ words: [String], _ markNotes: [String?], _ note: String, _ session: SessionInfo, _ isTest: Bool) -> Void)?
+    var onSend: ((_ words: [String], _ markNotes: [String?], _ note: String, _ session: SessionInfo) -> Void)?
     var onCancel: (() -> Void)?
 
     private static let columnWidth: CGFloat = 480
@@ -17,7 +17,6 @@ final class SendWindow: NSPanel, NSTextFieldDelegate {
     private var needsWords: [Bool] = []
     private var rings: [Ring] = []                 // marks whose tool asks for words: Send waits for them
     private let problem = NSTextField(labelWithString: "")
-    private let kind = NSSegmentedControl(labels: ["Real change", "Test"], trackingMode: .selectOne, target: nil, action: nil)
 
     /// `found`: the words read under each mark, to warn about a Wording box over empty space.
     init(preview: NSImage, marks: [Mark], found: [String]) {
@@ -117,11 +116,7 @@ final class SendWindow: NSPanel, NSTextFieldDelegate {
         spacer.setContentHuggingPriority(.init(1), for: .horizontal)
         problem.textColor = .systemRed
         problem.font = .systemFont(ofSize: 13, weight: .medium)
-        // Tells Claude whether to act, or only say what it understood. Remembered between markups.
-        kind.selectedSegment = UserDefaults.standard.bool(forKey: "sendIsTest") ? 1 : 0
-        kind.target = self
-        kind.action = #selector(kindChanged)
-        let foot = NSStackView(views: [sendTo, popup, spacer, problem, kind, cancel, sendButton])
+        let foot = NSStackView(views: [sendTo, popup, spacer, problem, cancel, sendButton])
         foot.spacing = 10
 
         let all = NSStackView(views: [top, foot])
@@ -220,10 +215,6 @@ final class SendWindow: NSPanel, NSTextFieldDelegate {
 
     @objc private func pickedSession() {}
 
-    @objc private func kindChanged() {
-        UserDefaults.standard.set(kind.selectedSegment == 1, forKey: "sendIsTest")
-    }
-
     /// Send waits until every Wording, Button and similar mark has its words.
     private func validate() {
         let missing = fields.indices.filter { needsWords[$0] && fields[$0].text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
@@ -238,7 +229,7 @@ final class SendWindow: NSPanel, NSTextFieldDelegate {
         let i = popup.indexOfSelectedItem
         guard sendButton.isEnabled, i >= 0, i < sessions.count else { return }
         let extras = fields.indices.map { markNotes[$0]?.text }
-        onSend?(fields.map(\.text), extras, note.text, sessions[i], kind.selectedSegment == 1)
+        onSend?(fields.map(\.text), extras, note.text, sessions[i])
     }
 
     @objc private func cancelPressed() { onCancel?() }

@@ -35,8 +35,7 @@ enum Output {
         return recognize(clean, crop: crop, scale: s, marks: marks)
     }
 
-    static func make(frozen: Frozen, crop: CGRect, marks: [Mark], note: String = "", briefed: Bool = false,
-                     isTest: Bool = false) -> MarkupOutput? {
+    static func make(frozen: Frozen, crop: CGRect, marks: [Mark], note: String = "", briefed: Bool = false) -> MarkupOutput? {
         let s = frozen.scale
         let px = CGRect(x: crop.minX * s, y: crop.minY * s, width: crop.width * s, height: crop.height * s).integral
         guard let clean = frozen.image.cropping(to: px), let marked = render(clean: clean, crop: crop, scale: s, marks: marks)
@@ -51,7 +50,7 @@ enum Output {
 
         let words = recognize(clean, crop: crop, scale: s, marks: marks)
         let prompt = describe(frozen: frozen, crop: crop, marks: marks, words: words, markedURL: markedURL, cleanURL: cleanURL,
-                              note: note, briefed: briefed, isTest: isTest)
+                              note: note, briefed: briefed)
         try? prompt.write(to: folder.appendingPathComponent("prompt.txt"), atomically: true, encoding: .utf8)
         return MarkupOutput(folder: folder, marked: NSImage(cgImage: marked, size: crop.size), prompt: prompt)
     }
@@ -106,7 +105,7 @@ enum Output {
     static func name(of m: Mark) -> String { m.tool?.name ?? "Pasted piece" }
 
     static func describe(frozen: Frozen, crop: CGRect, marks: [Mark], words: [String], markedURL: URL, cleanURL: URL,
-                         note: String, briefed: Bool, isTest: Bool) -> String {
+                         note: String, briefed: Bool) -> String {
         func n(_ v: CGFloat) -> Int { Int(v.rounded()) }
         func pt(_ p: CGPoint) -> String { "\(n(p.x - crop.minX)),\(n(p.y - crop.minY))" }
         func box(_ r: CGRect) -> String { "\(pt(r.origin)) \(n(r.width))×\(n(r.height))" }
@@ -114,9 +113,6 @@ enum Output {
         lines.append(briefed
             ? "UandI markup (how to read it: \(Guide.url.path))."
             : "UandI markup. Before acting, read the guide once: \(Guide.url.path). Later markups in this chat use the same format.")
-        lines.append(isTest
-            ? "Kind: TEST. The user is trying UandI. Say briefly what you understood, and change nothing."
-            : "Kind: real change.")
         let c = frozen.context
         if !c.app.isEmpty { lines.append("App: \(c.app)\(c.bundleID.isEmpty ? "" : " (\(c.bundleID))").") }
         if !c.window.isEmpty { lines.append("Window: \(c.window)") }

@@ -174,8 +174,8 @@ final class OverlayController {
         let w = SendWindow(preview: preview, marks: canvas.marks,
                            found: Output.wordsUnder(frozen: frozen, crop: canvas.outputArea, marks: canvas.marks))
         w.onCancel = { [weak self] in self?.closeSendWindow() }
-        w.onSend = { [weak self] words, markNotes, note, session, isTest in
-            self?.send(to: session, words: words, markNotes: markNotes, note: note, isTest: isTest)
+        w.onSend = { [weak self] words, markNotes, note, session in
+            self?.send(to: session, words: words, markNotes: markNotes, note: note)
         }
         sendWindow = w
         w.present(on: frozen.screen)
@@ -188,7 +188,7 @@ final class OverlayController {
         window.makeFirstResponder(canvas)
     }
 
-    private func send(to s: SessionInfo, words: [String], markNotes: [String?], note: String, isTest: Bool) {
+    private func send(to s: SessionInfo, words: [String], markNotes: [String?], note: String) {
         var marks = canvas.marks
         for i in marks.indices where i < words.count {
             if marks[i].asksForWords {
@@ -199,7 +199,7 @@ final class OverlayController {
             }
         }
         guard let out = Output.make(frozen: frozen, crop: canvas.outputArea, marks: marks, note: note,
-                                    briefed: Sessions.isBriefed(s), isTest: isTest) else { return }
+                                    briefed: Sessions.isBriefed(s)) else { return }
         do {
             try Sessions.deliver(out, to: s)
             Sessions.lastId = s.sessionId
