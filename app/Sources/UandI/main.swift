@@ -175,21 +175,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// "U&I" drawn as a template image so it follows the menu bar's light and dark look.
+    /// The app icon from icon.svg (a dashed screen area with a pointer), cut to its art and drawn as a template image
+    /// so it follows the menu bar's light and dark look.
     static func menubarImage() -> NSImage {
-        let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 11, weight: .heavy),
-                                                    .foregroundColor: NSColor.black]
-        let s = "U&I" as NSString
-        let ts = s.size(withAttributes: attrs)
-        let size = CGSize(width: ceil(ts.width) + 8, height: 16)
-        let img = NSImage(size: size, flipped: false) { r in
-            NSColor.black.setStroke()
-            let box = NSBezierPath(roundedRect: r.insetBy(dx: 0.75, dy: 0.75), xRadius: 3.5, yRadius: 3.5)
-            box.lineWidth = 1.5
-            box.stroke()
-            s.draw(at: CGPoint(x: (r.width - ts.width) / 2, y: (r.height - ts.height) / 2 + 0.5), withAttributes: attrs)
-            return true
-        }
+        let svg = #"<svg xmlns="http://www.w3.org/2000/svg" viewBox="253.3 216.2 46 46"><path d="M292.6,261.8h-5.9v-2h5.8v2ZM280.9,261.8h-5.8v-2h5.8v2ZM269.3,261.8h-5.8v-2h5.8v2ZM257.3,261.1c-2.1-1.1-3.5-3.2-3.5-5.6h2c0,1.6.9,3.1,2.4,3.8l-.9,1.8ZM298.2,258.2l-1.8-.9c.3-.6.4-1.2.4-1.8v-3.5h2v3.5c0,.9-.2,1.8-.6,2.7ZM255.8,249.7h-2v-5.8h2v5.8ZM298.8,246.2h-2v-5.8h2v5.8ZM255.8,238.1h-2v-5.8h2v5.8ZM298.8,234.6h-2v-5.8h2v5.8ZM255.8,226.4h-2v-3.5c0-1,.2-1.9.6-2.7l1.8.9c-.3.6-.4,1.2-.4,1.8v3.5ZM296.8,222.9c0-1.6-.9-3.1-2.4-3.8l.9-1.8c2.2,1,3.5,3.2,3.5,5.6h-2ZM289.1,218.7h-5.8v-2h5.8v2ZM277.4,218.7h-5.8v-2h5.8v2ZM265.8,218.7h-5.8v-1.8s0-.2,0-.2h5.8s0,2,0,2Z"/><path d="M261.3,225.1l20,20c0,0,.1.2.1.3,0,.2-.2.4-.4.4h-11.1l-7.9,7.9c0,0-.2.1-.3.1h0c-.2,0-.4-.2-.4-.4v-28.4M261.3,222.9c-.3,0-.6,0-.9.2-.8.3-1.4,1.2-1.4,2.1v28.4c0,1.5,1.2,2.7,2.7,2.7s1.4-.3,1.9-.8l7.3-7.3h10.1c1.5,0,2.7-1.2,2.7-2.7s-.3-1.4-.8-1.9l-20-20c-.4-.4-1-.7-1.6-.7h0Z"/></svg>"#
+        let img = NSImage(data: Data(svg.utf8)) ?? NSImage()
+        img.size = CGSize(width: 18, height: 18)
         img.isTemplate = true
         return img
     }
