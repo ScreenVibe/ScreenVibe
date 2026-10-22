@@ -2,18 +2,21 @@
 # Builds ScreenVibe.app, signs it, installs it to ~/Applications and starts it.
 # Signing: SIGN_ID if set, else your first Developer ID or Apple Development certificate, else ad hoc.
 # With a certificate, the Screen Recording permission survives rebuilds; ad hoc, macOS asks again after each build.
+# release.sh runs it with APP=<folder>/ScreenVibe.app RELEASE=1: build and sign for notarizing, no install, no start.
 set -euo pipefail
 cd "$(dirname "$0")/app"
 
 swift build -c release
-APP="$HOME/Applications/ScreenVibe.app"
-pkill -x ScreenVibe 2>/dev/null || true
+APP="${APP:-$HOME/Applications/ScreenVibe.app}"
+RELEASE="${RELEASE:-}"
+VERSION="$(cat ../VERSION)"
+[[ -z "$RELEASE" ]] && { pkill -x ScreenVibe 2>/dev/null || true; }
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS"
 cp .build/release/ScreenVibe "$APP/Contents/MacOS/ScreenVibe"
 mkdir -p "$APP/Contents/Resources"
 cp AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
-cat > "$APP/Contents/Info.plist" <<'PLIST'
+cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
@@ -22,7 +25,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundleExecutable</key><string>ScreenVibe</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>0.1.0</string>
+  <key>CFBundleShortVersionString</key><string>$VERSION</string>
   <key>CFBundleVersion</key><string>1</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>LSUIElement</key><true/>
@@ -39,7 +42,9 @@ cat > "$PWD/.build/ScreenVibe.entitlements" <<'ENT'
 ENT
 SIGN_ID="${SIGN_ID:-$(security find-identity -v -p codesigning 2>/dev/null \
   | grep -oE '"(Developer ID Application|Apple Development): [^"]+"' | head -1 | tr -d '"' || true)}"
-codesign --force --options runtime --entitlements "$PWD/.build/ScreenVibe.entitlements" --sign "${SIGN_ID:--}" "$APP"
+codesign --force --options runtime ${RELEASE:+--timestamp} --entitlements "$PWD/.build/ScreenVibe.entitlements" \
+  --sign "${SIGN_ID:--}" "$APP"
 codesign --verify --strict "$APP"
+[[ -n "$RELEASE" ]] && { echo "Built $APP"; exit 0; }
 open "$APP"
 echo "Installed and started $APP"

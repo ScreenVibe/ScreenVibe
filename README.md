@@ -17,7 +17,17 @@ Needs macOS 14 or newer, and Claude Code 2.1.305 or newer (the add-on uses Claud
 
 ## Install
 
-ScreenVibe is built from source; there is no download yet. You need the Xcode command line tools, version 15.3 or newer (`xcode-select --install`).
+With Homebrew:
+
+```
+brew install --cask VibeScreenApp/tap/screenvibe
+```
+
+Or download the zip from [Releases](https://github.com/VibeScreenApp/ScreenVibe/releases), unzip it, and move ScreenVibe to Applications. Either way, open it once; its icon appears in the menu bar.
+
+### Or build it yourself
+
+You need the Xcode command line tools, version 15.3 or newer (`xcode-select --install`).
 
 ```
 git clone https://github.com/VibeScreenApp/ScreenVibe.git
@@ -29,7 +39,7 @@ That builds the menu bar app, installs it to `~/Applications/ScreenVibe.app` and
 
 To have ScreenVibe start when you log in, choose **Start at login** in its menu bar menu.
 
-Then add the Claude Code add-on:
+### Then add the Claude Code add-on
 
 ```
 claude plugin marketplace add VibeScreenApp/ScreenVibe
