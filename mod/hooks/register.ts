@@ -11,7 +11,9 @@ const POLL_MS = 1000
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const result = await next(e)
-    if (!e.isInteractive) return result
+    // The terminal, or the Claude desktop app, which runs Claude Code as an SDK host. Not one-off `-p` runs.
+    const desktop = (await $.env.get('CLAUDE_CODE_ENTRYPOINT')) === 'claude-desktop'
+    if (!e.isInteractive && !desktop) return result
 
     const home = await $.env.get('HOME')
     if (home === undefined) return result

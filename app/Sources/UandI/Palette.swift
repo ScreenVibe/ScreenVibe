@@ -176,9 +176,18 @@ final class Grip: NSView {
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     override func resetCursorRects() { addCursorRect(bounds, cursor: .openHand) }
-    override func mouseDown(with event: NSEvent) {
-        window?.performDrag(with: event)
-        onMoved?()
+    private var grabbed: CGPoint?   // where in the window the drag started
+
+    // Moved by hand rather than performDrag, which returns before the drag ends, so the place saved was the old one.
+    override func mouseDown(with event: NSEvent) { grabbed = event.locationInWindow }
+    override func mouseDragged(with event: NSEvent) {
+        guard let w = window, let g = grabbed else { return }
+        let p = NSEvent.mouseLocation
+        w.setFrameOrigin(CGPoint(x: p.x - g.x, y: p.y - g.y))
+    }
+    override func mouseUp(with event: NSEvent) {
+        if grabbed != nil { onMoved?() }
+        grabbed = nil
     }
 
     override func draw(_ dirtyRect: NSRect) {

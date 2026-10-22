@@ -126,8 +126,12 @@ final class OverlayController {
         let visible = frozen.screen.visibleFrame
         func toScreen(_ p: CGPoint) -> CGPoint { CGPoint(x: screen.minX + p.x, y: screen.maxY - p.y) }
         let tw = toolsPalette.frame.size, aw = actionsPalette.frame.size
+        // A saved place counts only while the whole palette is still on this screen.
+        func onScreen(_ topLeft: CGPoint, _ size: CGSize) -> Bool {
+            visible.contains(CGRect(x: topLeft.x, y: topLeft.y - size.height, width: size.width, height: size.height))
+        }
 
-        if let p = toolsPalette.placedTopLeft {
+        if let p = toolsPalette.placedTopLeft, onScreen(p, toolsPalette.frame.size) {
             toolsPalette.moveTopLeft(to: p)
         } else if let crop = canvas.crop {
             var p: CGPoint
@@ -150,7 +154,7 @@ final class OverlayController {
             toolsPalette.moveTopLeft(to: toScreen(p))
         }
 
-        if let p = actionsPalette.placedTopLeft {
+        if let p = actionsPalette.placedTopLeft, onScreen(p, actionsPalette.frame.size) {
             actionsPalette.moveTopLeft(to: p)
         } else if let crop = canvas.crop {
             var p = CGPoint(x: crop.maxX - aw.width, y: crop.maxY + 12)
