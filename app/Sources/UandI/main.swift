@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
@@ -9,11 +10,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let b = statusItem.button {
             b.image = Self.menubarImage()
-            b.toolTip = "UandI: mark up the screen"
+            b.toolTip = "UandI: mark up the screen (⌘⇧6)"
             b.target = self
             b.action = #selector(clicked)
             b.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
+        registerHotKey()
         let args = CommandLine.arguments
         if let i = args.firstIndex(of: "--demo"), i + 1 < args.count { demo(path: args[i + 1]) }
     }
@@ -40,11 +42,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// ⌘⇧6 starts a markup from anywhere.
+    private func registerHotKey() {
+        var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
+        InstallEventHandler(GetApplicationEventTarget(), { _, _, _ in
+            DispatchQueue.main.async { (NSApp.delegate as? AppDelegate)?.start() }
+            return noErr
+        }, 1, &spec, nil, nil)
+        var ref: EventHotKeyRef?
+        RegisterEventHotKey(UInt32(kVK_ANSI_6), UInt32(cmdKey | shiftKey), EventHotKeyID(signature: OSType(0x55414E44), id: 1),
+                            GetApplicationEventTarget(), 0, &ref)
+    }
+
     @objc private func clicked() {
         let e = NSApp.currentEvent
         if e?.type == .rightMouseUp || e?.modifierFlags.contains(.control) == true {
             let m = NSMenu()
-            m.addItem(ClosureMenuItem(title: "Mark up the screen") { [weak self] in self?.start() })
+            m.addItem(ClosureMenuItem(title: "Mark up the screen  ⌘⇧6") { [weak self] in self?.start() })
             m.addItem(ClosureMenuItem(title: "Edit tools…") { ToolEditorWindow.show() })
             m.addItem(ClosureMenuItem(title: "Open the markups folder") {
                 let dir = Output.root.appendingPathComponent("markups")

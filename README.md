@@ -4,7 +4,7 @@ Mark up any part of the screen and send it straight to a Claude Code session. No
 
 ## Use
 
-- Click **U&I** in the menu bar. The screen freezes.
+- Click **U&I** in the menu bar, or press ⌘⇧6. The screen freezes.
 - Drag a box around the part you want to change.
 - Mark it with the tools: Remove, Wording, Button, Move, Copy+move, Pen, Note, Red frame, or your own.
 - **Select (V)** moves marks. It also picks any part of the frozen screen, even outside the box: ⌘C copies it and ⌘V pastes it into the box.
