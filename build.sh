@@ -11,12 +11,15 @@ pkill -x ScreenVibe 2>/dev/null || true
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS"
 cp .build/release/ScreenVibe "$APP/Contents/MacOS/ScreenVibe"
+mkdir -p "$APP/Contents/Resources"
+cp AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
   <key>CFBundleIdentifier</key><string>com.slsuite.screenvibe</string>
   <key>CFBundleName</key><string>ScreenVibe</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundleExecutable</key><string>ScreenVibe</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>0.1.0</string>
@@ -35,7 +38,7 @@ cat > "$PWD/.build/ScreenVibe.entitlements" <<'ENT'
 </dict></plist>
 ENT
 SIGN_ID="${SIGN_ID:-$(security find-identity -v -p codesigning 2>/dev/null \
-  | grep -oE '"(Developer ID Application|Apple Development): [^"]+"' | head -1 | tr -d '"')}"
+  | grep -oE '"(Developer ID Application|Apple Development): [^"]+"' | head -1 | tr -d '"' || true)}"
 codesign --force --options runtime --entitlements "$PWD/.build/ScreenVibe.entitlements" --sign "${SIGN_ID:--}" "$APP"
 codesign --verify --strict "$APP"
 open "$APP"
