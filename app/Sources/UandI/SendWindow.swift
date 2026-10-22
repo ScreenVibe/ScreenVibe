@@ -14,9 +14,6 @@ final class SendWindow: NSPanel, NSTextFieldDelegate {
     private let sendButton = NSButton(title: "Send", target: nil, action: nil)
     private var sessions: [SessionInfo] = []
     private var refresh: Timer?
-    private var needsWords: [Bool] = []
-    private var rings: [Ring] = []                 // marks whose tool asks for words: Send waits for them
-    private let problem = NSTextField(labelWithString: "")
 
     /// `found`: the words read under each mark, to warn about a Wording box over empty space.
     init(preview: NSImage, marks: [Mark], found: [String]) {
@@ -61,7 +58,6 @@ final class SendWindow: NSPanel, NSTextFieldDelegate {
                 markNotes[i] = f
                 noteField = f
             }
-            needsWords.append(m.asksForWords && m.tool?.shape != .text)
             let empty = m.tool?.id == "wording" && (i >= found.count || found[i].isEmpty)
             column.addArrangedSubview(row(number: i + 1, color: m.color, name: Output.name(of: m), field: field,
                                           note: noteField,
@@ -114,9 +110,7 @@ final class SendWindow: NSPanel, NSTextFieldDelegate {
         sendButton.bezelColor = NSColor(hex: "#D6342C")
         let spacer = NSView()
         spacer.setContentHuggingPriority(.init(1), for: .horizontal)
-        problem.textColor = .systemRed
-        problem.font = .systemFont(ofSize: 13, weight: .medium)
-        let foot = NSStackView(views: [sendTo, popup, spacer, problem, cancel, sendButton])
+        let foot = NSStackView(views: [sendTo, popup, spacer, cancel, sendButton])
         foot.spacing = 10
 
         let all = NSStackView(views: [top, foot])
@@ -165,9 +159,7 @@ final class SendWindow: NSPanel, NSTextFieldDelegate {
         label.font = .systemFont(ofSize: 12, weight: .semibold)
         label.textColor = .secondaryLabelColor
         field.width = Self.columnWidth - 36
-        let ring = Ring(field)
-        rings.append(ring)
-        var parts: [NSView] = [label, ring]
+        var parts: [NSView] = [label, field]
         if let warning {
             let w = NSTextField(wrappingLabelWithString: warning)
             w.font = .systemFont(ofSize: 12)
@@ -215,14 +207,8 @@ final class SendWindow: NSPanel, NSTextFieldDelegate {
 
     @objc private func pickedSession() {}
 
-    /// Send waits until every Wording, Button and similar mark has its words.
     private func validate() {
-        let missing = fields.indices.filter { needsWords[$0] && fields[$0].text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-        for (i, ring) in rings.enumerated() { ring.isOn = missing.contains(i) }
-        problem.stringValue = missing.isEmpty ? "" : missing.count == 1
-            ? "Mark \(missing[0] + 1) needs its words."
-            : "Marks \(missing.map { "\($0 + 1)" }.joined(separator: ", ")) need their words."
-        sendButton.isEnabled = missing.isEmpty && !sessions.isEmpty
+        sendButton.isEnabled = !sessions.isEmpty
     }
 
     @objc private func sendPressed() {
@@ -300,24 +286,4 @@ private final class FlippedView: NSView {
     override var isFlipped: Bool { true }
 }
 
-/// A red outline around a text box that still needs words. Drawn around the box, so the box keeps its own look.
-private final class Ring: NSView {
-    var isOn = false { didSet { layer?.borderWidth = isOn ? 2 : 0 } }
 
-    init(_ field: NSView) {
-        super.init(frame: .zero)
-        translatesAutoresizingMaskIntoConstraints = false
-        wantsLayer = true
-        layer?.cornerRadius = 7
-        layer?.borderColor = NSColor.systemRed.cgColor
-        addSubview(field)
-        NSLayoutConstraint.activate([
-            field.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 2),
-            field.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -2),
-            field.topAnchor.constraint(equalTo: topAnchor, constant: 2),
-            field.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -2),
-        ])
-    }
-
-    required init?(coder: NSCoder) { fatalError() }
-}

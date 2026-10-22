@@ -54,6 +54,7 @@ enum Guide {
         - Find the code that draws this screen. Use the URL, document, window title, the words in the marks and the project you are working in.
         - Make each numbered change. Change nothing that is not marked.
         - Remove has no words on purpose: the highlighted thing goes away.
+        - Any other mark can come without words too. Then the note for the whole markup, or the other marks, say what it is for.
         - If a mark is unclear, or two marks disagree, ask before changing anything.
         - When you are done, say what you changed for each number.
         - If you can look at the running app, compare the result with the marked picture.
