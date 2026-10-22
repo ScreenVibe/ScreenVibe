@@ -3,7 +3,7 @@ import AppKit
 /// Opens on Send: the marked picture, every numbered request (editable), a note for the whole markup and the session.
 /// Return sends, Esc goes back to the markup.
 final class SendWindow: NSPanel, NSTextFieldDelegate {
-    var onSend: ((_ words: [String], _ markNotes: [String?], _ note: String, _ session: SessionInfo) -> Void)?
+    var onSend: ((_ words: [String], _ markNotes: [String?], _ note: String, _ session: SessionInfo, _ isTest: Bool) -> Void)?
     var onCancel: (() -> Void)?
 
     private static let columnWidth: CGFloat = 480
@@ -14,8 +14,13 @@ final class SendWindow: NSPanel, NSTextFieldDelegate {
     private let sendButton = NSButton(title: "Send", target: nil, action: nil)
     private var sessions: [SessionInfo] = []
     private var refresh: Timer?
+    private var needsWords: [Bool] = []
+    private var rings: [Ring] = []                 // marks whose tool asks for words: Send waits for them
+    private let problem = NSTextField(labelWithString: "")
+    private let kind = NSSegmentedControl(labels: ["Real change", "Test"], trackingMode: .selectOne, target: nil, action: nil)
 
-    init(preview: NSImage, marks: [Mark]) {
+    /// `found`: the words read under each mark, to warn about a Wording box over empty space.
+    init(preview: NSImage, marks: [Mark], found: [String]) {
         super.init(contentRect: CGRect(x: 0, y: 0, width: 960, height: 400), styleMask: [.titled, .closable, .nonactivatingPanel],
                    backing: .buffered, defer: false)
         title = "Send the markup"
@@ -57,8 +62,11 @@ final class SendWindow: NSPanel, NSTextFieldDelegate {
                 markNotes[i] = f
                 noteField = f
             }
+            needsWords.append(m.asksForWords && m.tool?.shape != .text)
+            let empty = m.tool?.id == "wording" && (i >= found.count || found[i].isEmpty)
             column.addArrangedSubview(row(number: i + 1, color: m.color, name: Output.name(of: m), field: field,
-                                          note: noteField))
+                                          note: noteField,
+                                          warning: empty ? "No words were found under this box. Say in a note what it replaces." : nil))
         }
         let noteLabel = NSTextField(labelWithString: "Note for the whole markup")
         noteLabel.font = .systemFont(ofSize: 13, weight: .semibold)
@@ -107,7 +115,13 @@ final class SendWindow: NSPanel, NSTextFieldDelegate {
         sendButton.bezelColor = NSColor(hex: "#D6342C")
         let spacer = NSView()
         spacer.setContentHuggingPriority(.init(1), for: .horizontal)
-        let foot = NSStackView(views: [sendTo, popup, spacer, cancel, sendButton])
+        problem.textColor = .systemRed
+        problem.font = .systemFont(ofSize: 13, weight: .medium)
+        // Tells Claude whether to act, or only say what it understood. Remembered between markups.
+        kind.selectedSegment = UserDefaults.standard.bool(forKey: "sendIsTest") ? 1 : 0
+        kind.target = self
+        kind.action = #selector(kindChanged)
+        let foot = NSStackView(views: [sendTo, popup, spacer, problem, kind, cancel, sendButton])
         foot.spacing = 10
 
         let all = NSStackView(views: [top, foot])
@@ -128,6 +142,7 @@ final class SendWindow: NSPanel, NSTextFieldDelegate {
         contentView = content
 
         loadSessions()
+        validate()
         refresh = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in self?.loadSessions() }
         for f in fields + Array(markNotes.values) + [note] { f.fit() }
         layoutIfNeeded()
@@ -148,13 +163,23 @@ final class SendWindow: NSPanel, NSTextFieldDelegate {
         super.close()
     }
 
-    private func row(number: Int, color: NSColor, name: String, field: GrowingField, note: GrowingField?) -> NSView {
+    private func row(number: Int, color: NSColor, name: String, field: GrowingField, note: GrowingField?,
+                     warning: String?) -> NSView {
         let dot = NumberDot(number: number, color: color)
         let label = NSTextField(labelWithString: name)
         label.font = .systemFont(ofSize: 12, weight: .semibold)
         label.textColor = .secondaryLabelColor
         field.width = Self.columnWidth - 36
-        var parts: [NSView] = [label, field]
+        let ring = Ring(field)
+        rings.append(ring)
+        var parts: [NSView] = [label, ring]
+        if let warning {
+            let w = NSTextField(wrappingLabelWithString: warning)
+            w.font = .systemFont(ofSize: 12)
+            w.textColor = .systemOrange
+            w.preferredMaxLayoutWidth = Self.columnWidth - 36
+            parts.append(w)
+        }
         if let note {
             let noteLabel = NSTextField(labelWithString: "Note")
             noteLabel.font = .systemFont(ofSize: 12, weight: .semibold)
@@ -189,23 +214,38 @@ final class SendWindow: NSPanel, NSTextFieldDelegate {
         }
         for s in live { popup.addItem(withTitle: s.menuTitle) }
         popup.isEnabled = true
-        sendButton.isEnabled = true
+        validate()
         popup.selectItem(at: live.firstIndex { $0.sessionId == keep } ?? 0)
     }
 
     @objc private func pickedSession() {}
 
+    @objc private func kindChanged() {
+        UserDefaults.standard.set(kind.selectedSegment == 1, forKey: "sendIsTest")
+    }
+
+    /// Send waits until every Wording, Button and similar mark has its words.
+    private func validate() {
+        let missing = fields.indices.filter { needsWords[$0] && fields[$0].text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        for (i, ring) in rings.enumerated() { ring.isOn = missing.contains(i) }
+        problem.stringValue = missing.isEmpty ? "" : missing.count == 1
+            ? "Mark \(missing[0] + 1) needs its words."
+            : "Marks \(missing.map { "\($0 + 1)" }.joined(separator: ", ")) need their words."
+        sendButton.isEnabled = missing.isEmpty && !sessions.isEmpty
+    }
+
     @objc private func sendPressed() {
         let i = popup.indexOfSelectedItem
-        guard i >= 0, i < sessions.count else { return }
+        guard sendButton.isEnabled, i >= 0, i < sessions.count else { return }
         let extras = fields.indices.map { markNotes[$0]?.text }
-        onSend?(fields.map(\.text), extras, note.text, sessions[i])
+        onSend?(fields.map(\.text), extras, note.text, sessions[i], kind.selectedSegment == 1)
     }
 
     @objc private func cancelPressed() { onCancel?() }
 
     func controlTextDidChange(_ obj: Notification) {
         (obj.object as? GrowingField)?.fit()
+        validate()
     }
 }
 
@@ -267,4 +307,26 @@ private final class NumberDot: NSView {
 
 private final class FlippedView: NSView {
     override var isFlipped: Bool { true }
+}
+
+/// A red outline around a text box that still needs words. Drawn around the box, so the box keeps its own look.
+private final class Ring: NSView {
+    var isOn = false { didSet { layer?.borderWidth = isOn ? 2 : 0 } }
+
+    init(_ field: NSView) {
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        wantsLayer = true
+        layer?.cornerRadius = 7
+        layer?.borderColor = NSColor.systemRed.cgColor
+        addSubview(field)
+        NSLayoutConstraint.activate([
+            field.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 2),
+            field.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -2),
+            field.topAnchor.constraint(equalTo: topAnchor, constant: 2),
+            field.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -2),
+        ])
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
 }

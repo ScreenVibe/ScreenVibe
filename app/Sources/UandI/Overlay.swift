@@ -171,10 +171,11 @@ final class OverlayController {
         if let w = sendWindow { w.makeKeyAndOrderFront(nil); return }
         canvas.commitEditor()  // words still being typed go with the markup
         guard let preview = Output.preview(frozen: frozen, crop: canvas.outputArea, marks: canvas.marks) else { return }
-        let w = SendWindow(preview: preview, marks: canvas.marks)
+        let w = SendWindow(preview: preview, marks: canvas.marks,
+                           found: Output.wordsUnder(frozen: frozen, crop: canvas.outputArea, marks: canvas.marks))
         w.onCancel = { [weak self] in self?.closeSendWindow() }
-        w.onSend = { [weak self] words, markNotes, note, session in
-            self?.send(to: session, words: words, markNotes: markNotes, note: note)
+        w.onSend = { [weak self] words, markNotes, note, session, isTest in
+            self?.send(to: session, words: words, markNotes: markNotes, note: note, isTest: isTest)
         }
         sendWindow = w
         w.present(on: frozen.screen)
@@ -187,7 +188,7 @@ final class OverlayController {
         window.makeFirstResponder(canvas)
     }
 
-    private func send(to s: SessionInfo, words: [String], markNotes: [String?], note: String) {
+    private func send(to s: SessionInfo, words: [String], markNotes: [String?], note: String, isTest: Bool) {
         var marks = canvas.marks
         for i in marks.indices where i < words.count {
             if marks[i].asksForWords {
@@ -198,7 +199,7 @@ final class OverlayController {
             }
         }
         guard let out = Output.make(frozen: frozen, crop: canvas.outputArea, marks: marks, note: note,
-                                    briefed: Sessions.isBriefed(s)) else { return }
+                                    briefed: Sessions.isBriefed(s), isTest: isTest) else { return }
         do {
             try Sessions.deliver(out, to: s)
             Sessions.lastId = s.sessionId
@@ -389,7 +390,7 @@ final class Canvas: NSView, NSTextFieldDelegate {
         }
         // The open question box shows its mark's words, so the mark's own bubble stays hidden.
         MarkDrawing.drawAll(marks, selected: tool == nil && !cropping ? selected : nil,
-                            hideWordsOf: editor?.isNote == false ? editor?.index : nil, badges: true)
+                            hideWordsOf: editor?.isNote == false ? editor?.index : nil, badges: true, within: crop)
         if case .drawing(let m, _) = drag { MarkDrawing.draw(m, number: nil, selected: false) }
         if case .marquee = drag, let r = pixelSelection { drawMarquee(r) }
         else if let r = pixelSelection { drawMarquee(r) }
@@ -625,6 +626,7 @@ final class Canvas: NSView, NSTextFieldDelegate {
             } else {
                 finishMark(marks.count - 1)
                 if t.ask != nil { openEditor(for: marks.count - 1, isNew: true) }
+                else if t.shape == .pen { openEditor(for: marks.count - 1, isNew: false, note: true) }  // a drawing alone says little
             }
         case .marquee:
             if let r = pixelSelection, r.width < 4 || r.height < 4 { pixelSelection = nil }

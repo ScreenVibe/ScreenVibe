@@ -22,6 +22,7 @@ enum Guide {
         - **App, Window, URL, Document**: what was in front when the screen froze: the app, its window title, the web address when it is a browser, and the open file when the app reports one. Each appears only when UandI could tell.
         - **Under the picture**: the app under the picture, when it is not the front app.
         - **Note**: the user's note about the whole markup, when there is one.
+        - **Kind**: "real change" means make the changes. "TEST" means the user is trying UandI itself: say briefly what you understood, and change nothing.
         - **Numbered lines**: one for each mark, matching the numbers in the marked picture.
 
         ## Reading a line

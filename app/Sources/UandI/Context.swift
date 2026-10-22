@@ -13,19 +13,28 @@ struct FrontContext {
 }
 
 enum ContextGrab {
-    /// Browsers and the AppleScript that reads the front tab's address.
+    /// Browsers and how their AppleScript names a window's front tab.
     private static let browsers: [String: String] = {
-        let chromeLike = "tell application id \"%@\" to return URL of active tab of front window"
         var b: [String: String] = [:]
         for id in ["com.google.Chrome", "com.google.Chrome.canary", "com.brave.Browser", "com.microsoft.edgemac",
-                   "company.thebrowser.Browser", "com.vivaldi.Vivaldi", "com.operasoftware.Opera"] {
-            b[id] = String(format: chromeLike, id)
-        }
-        for id in ["com.apple.Safari", "com.apple.SafariTechnologyPreview"] {
-            b[id] = "tell application id \"\(id)\" to return URL of front document"
-        }
+                   "company.thebrowser.Browser", "com.vivaldi.Vivaldi", "com.operasoftware.Opera"] { b[id] = "active tab" }
+        for id in ["com.apple.Safari", "com.apple.SafariTechnologyPreview"] { b[id] = "current tab" }
         return b
     }()
+
+    /// The address in the browser window at `frame`. Matched by position, because two windows can share a title
+    /// and the browser's own "front window" is not always the one on top. No match gives no address, never a wrong one.
+    private static func script(for bundleID: String, tab: String, frame: CGRect) -> String {
+        """
+        tell application id "\(bundleID)"
+          repeat with w in windows
+            set b to bounds of w
+            if (item 1 of b) = \(Int(frame.minX)) and (item 2 of b) = \(Int(frame.minY)) then return URL of \(tab) of w
+          end repeat
+        end tell
+        return ""
+        """
+    }
 
     /// Must run before UandI comes to the front, while the user's app is still frontmost.
     static func grab() async -> FrontContext {
@@ -36,7 +45,7 @@ enum ContextGrab {
         c.bundleID = app.bundleIdentifier ?? ""
         let pid = app.processIdentifier
 
-        if AXIsProcessTrusted() {
+        if AXIsProcessTrusted(), ProcessInfo.processInfo.environment["UANDI_NO_AX"] == nil {
             let ax = AXUIElementCreateApplication(pid)
             if let w = attribute(ax, kAXFocusedWindowAttribute) {
                 let win = w as! AXUIElement
@@ -47,13 +56,12 @@ enum ContextGrab {
                 }
             }
         }
-        if c.window.isEmpty {
-            c.window = Capture.windowList(pid: pid).first?.title ?? ""
-        }
+        let front = Capture.windowList(pid: pid).first
+        if c.window.isEmpty { c.window = front?.title ?? "" }
 
-        if c.url == nil, let script = browsers[c.bundleID] {
+        if c.url == nil, let tab = browsers[c.bundleID], let frame = front?.frame {
             switch permission(for: c.bundleID, ask: false) {
-            case noErr: c.url = await run(script)
+            case noErr: c.url = await run(script(for: c.bundleID, tab: tab, frame: frame))
             case OSStatus(errAEEventWouldRequireUserConsent): c.browserToAsk = c.bundleID
             default: break
             }

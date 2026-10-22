@@ -27,7 +27,16 @@ enum Output {
     }
 
     /// `briefed`: this chat has already been pointed at the guide.
-    static func make(frozen: Frozen, crop: CGRect, marks: [Mark], note: String = "", briefed: Bool = false) -> MarkupOutput? {
+    /// The words read under each mark, for the Send window's warnings.
+    static func wordsUnder(frozen: Frozen, crop: CGRect, marks: [Mark]) -> [String] {
+        let s = frozen.scale
+        let px = CGRect(x: crop.minX * s, y: crop.minY * s, width: crop.width * s, height: crop.height * s).integral
+        guard let clean = frozen.image.cropping(to: px) else { return [] }
+        return recognize(clean, crop: crop, scale: s, marks: marks)
+    }
+
+    static func make(frozen: Frozen, crop: CGRect, marks: [Mark], note: String = "", briefed: Bool = false,
+                     isTest: Bool = false) -> MarkupOutput? {
         let s = frozen.scale
         let px = CGRect(x: crop.minX * s, y: crop.minY * s, width: crop.width * s, height: crop.height * s).integral
         guard let clean = frozen.image.cropping(to: px), let marked = render(clean: clean, crop: crop, scale: s, marks: marks)
@@ -42,7 +51,7 @@ enum Output {
 
         let words = recognize(clean, crop: crop, scale: s, marks: marks)
         let prompt = describe(frozen: frozen, crop: crop, marks: marks, words: words, markedURL: markedURL, cleanURL: cleanURL,
-                              note: note, briefed: briefed)
+                              note: note, briefed: briefed, isTest: isTest)
         try? prompt.write(to: folder.appendingPathComponent("prompt.txt"), atomically: true, encoding: .utf8)
         return MarkupOutput(folder: folder, marked: NSImage(cgImage: marked, size: crop.size), prompt: prompt)
     }
@@ -59,7 +68,7 @@ enum Output {
         ctx.translateBy(x: -crop.minX, y: -crop.minY)
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: true)
-        MarkDrawing.drawAll(marks)
+        MarkDrawing.drawAll(marks, within: crop)
         NSGraphicsContext.restoreGraphicsState()
         return ctx.makeImage()
     }
@@ -85,8 +94,10 @@ enum Output {
         return marks.map { m in
             guard m.tool != nil, m.tool?.shape != .text else { return "" }
             let a = m.area.insetBy(dx: -2, dy: -2)
-            let joined = found.filter { a.contains($0.1) }.map { $0.0 }.joined(separator: " / ")
-            return joined.count > 140 ? String(joined.prefix(140)) + "…" : joined
+            // A big box holds a whole screen of words; the first few are enough to find it.
+            let inside = found.filter { a.contains($0.1) }.map { $0.0 }
+            let joined = inside.prefix(5).joined(separator: " / ")
+            return joined.count > 100 ? String(joined.prefix(100)) + "…" : joined + (inside.count > 5 ? " / …" : "")
         }
     }
 
@@ -95,7 +106,7 @@ enum Output {
     static func name(of m: Mark) -> String { m.tool?.name ?? "Pasted piece" }
 
     static func describe(frozen: Frozen, crop: CGRect, marks: [Mark], words: [String], markedURL: URL, cleanURL: URL,
-                         note: String, briefed: Bool) -> String {
+                         note: String, briefed: Bool, isTest: Bool) -> String {
         func n(_ v: CGFloat) -> Int { Int(v.rounded()) }
         func pt(_ p: CGPoint) -> String { "\(n(p.x - crop.minX)),\(n(p.y - crop.minY))" }
         func box(_ r: CGRect) -> String { "\(pt(r.origin)) \(n(r.width))×\(n(r.height))" }
@@ -103,6 +114,9 @@ enum Output {
         lines.append(briefed
             ? "UandI markup (how to read it: \(Guide.url.path))."
             : "UandI markup. Before acting, read the guide once: \(Guide.url.path). Later markups in this chat use the same format.")
+        lines.append(isTest
+            ? "Kind: TEST. The user is trying UandI. Say briefly what you understood, and change nothing."
+            : "Kind: real change.")
         let c = frozen.context
         if !c.app.isEmpty { lines.append("App: \(c.app)\(c.bundleID.isEmpty ? "" : " (\(c.bundleID))").") }
         if !c.window.isEmpty { lines.append("Window: \(c.window)") }

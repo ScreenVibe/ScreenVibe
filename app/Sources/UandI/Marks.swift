@@ -90,7 +90,13 @@ enum MarkDrawing {
 
     /// Draws every mark: the shapes first, then all the words, then the numbers, so later marks never cover words.
     /// `badges`: the round note buttons, on screen only.
-    static func drawAll(_ marks: [Mark], selected: Int? = nil, hideWordsOf hidden: Int? = nil, badges: Bool = false) {
+    /// The picture's area while drawing, so callouts stay inside it.
+    static var frame: CGRect?
+
+    static func drawAll(_ marks: [Mark], selected: Int? = nil, hideWordsOf hidden: Int? = nil, badges: Bool = false,
+                        within frame: CGRect? = nil) {
+        self.frame = frame
+        defer { self.frame = nil }
         for m in marks { draw(m, number: nil, selected: false, words: false) }
         for (i, m) in marks.enumerated() where i != hidden { words(m) }
         for (i, m) in marks.enumerated() {
@@ -222,15 +228,20 @@ enum MarkDrawing {
             s.draw(with: CGRect(x: b.midX - wrap / 2, y: b.minY + 6, width: wrap, height: ceil(sz.height) + 2),
                    options: [.usesLineFragmentOrigin], attributes: a)
         } else {
-            bubble("“\(m.text)”", at: CGPoint(x: m.rect.minX, y: m.rect.maxY + 6), color: t.color)
+            bubble("“\(m.text)”", at: CGPoint(x: m.rect.minX, y: m.rect.maxY + 6), color: t.color, above: m.rect.minY - 6)
         }
     }
 
-    static func bubble(_ text: String, at p: CGPoint, color: NSColor) {
+    /// `above`: where a callout's bottom goes when there is no room under the mark.
+    static func bubble(_ text: String, at p: CGPoint, color: NSColor, above: CGFloat? = nil) {
         let attrs: [NSAttributedString.Key: Any] = [.font: calloutFont, .foregroundColor: NSColor.white]
         let s = (text.isEmpty ? " " : text) as NSString
         let b = s.boundingRect(with: CGSize(width: 320, height: 1000), options: [.usesLineFragmentOrigin], attributes: attrs)
-        let box = CGRect(x: p.x, y: p.y, width: ceil(b.width) + 18, height: ceil(b.height) + 10)
+        var box = CGRect(x: p.x, y: p.y, width: ceil(b.width) + 18, height: ceil(b.height) + 10)
+        if let f = frame, above != nil {
+            if box.maxX > f.maxX - 4 { box.origin.x = max(f.minX + 4, f.maxX - 4 - box.width) }
+            if box.maxY > f.maxY - 4, let top = above { box.origin.y = max(f.minY + 4, top - box.height) }
+        }
         color.setFill()
         NSBezierPath(roundedRect: box, xRadius: 6, yRadius: 6).fill()
         // Drawn at the measured wrap width, so the lines break exactly as they were measured.
