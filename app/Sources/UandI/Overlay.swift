@@ -759,7 +759,7 @@ final class Canvas: NSView, NSTextFieldDelegate {
         let m = marks[i]
         let prompt: TextPrompt
         if note {
-            prompt = TextPrompt(question: "Note for mark \(i + 1)", text: m.extra, color: m.color)
+            prompt = TextPrompt(question: "Note for \(Output.name(of: m)) (Mark \(i + 1))", text: m.extra, color: m.color)
         } else {
             guard let t = m.tool, let question = t.ask ?? (t.shape == .text ? "What is the note?" : nil) else { return }
             prompt = TextPrompt(question: question, text: m.text, color: t.color)
