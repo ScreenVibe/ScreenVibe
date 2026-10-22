@@ -87,7 +87,7 @@ The app and the add-on only share files in `~/.screenvibe/`:
 2. On Send, the app writes the pictures and the text to that session's folder in `~/.screenvibe/inbox/`.
 3. The add-on checks its inbox and, when the session is idle, submits the markup as the next prompt.
 
-How to read a markup is in `~/.ScreenVibe/ScreenVibe-guide.md`, which the app rewrites whenever the tools change. The first markup sent to a chat asks Claude to read it; later ones only name it. Your tools are saved in `~/.screenvibe/tools.json`.
+How to read a markup is in `~/.screenvibe/ScreenVibe-guide.md`, which the app rewrites whenever the tools change. The first markup sent to a chat asks Claude to read it; later ones only name it. Your tools are saved in `~/.screenvibe/tools.json`.
 
 ## Make it yours
 
