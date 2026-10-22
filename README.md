@@ -20,7 +20,7 @@ Needs macOS 14 or newer, and Claude Code 2.1.305 or newer (the add-on uses Claud
 ScreenVibe is built from source; there is no download yet. You need the Xcode command line tools, version 15.3 or newer (`xcode-select --install`).
 
 ```
-git clone https://github.com/cryptohanaan/ScreenVibe.git
+git clone https://github.com/screenvibe/ScreenVibe.git
 cd ScreenVibe
 ./build.sh
 ```
@@ -32,7 +32,7 @@ To have ScreenVibe start when you log in, choose **Start at login** in its menu 
 Then add the Claude Code add-on:
 
 ```
-claude plugin marketplace add cryptohanaan/ScreenVibe
+claude plugin marketplace add screenvibe/ScreenVibe
 claude plugin install screenvibe@screenvibe
 ```
 
