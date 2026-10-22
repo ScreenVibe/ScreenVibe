@@ -1,6 +1,6 @@
 #!/bin/zsh
 # Makes a release anyone can download: builds and signs ScreenVibe.app with the Developer ID, has Apple notarize it,
-# staples the ticket, zips it, publishes it as a GitHub Release, and updates the Homebrew cask in VibeScreenApp/homebrew-tap.
+# staples the ticket, zips it, publishes it as a GitHub Release, and updates the Homebrew cask in ScreenVibe/homebrew-tap.
 # Needs: a Developer ID certificate, `xcrun notarytool store-credentials screenvibe-notary` done once, and gh signed in.
 # Version: the VERSION file. Raise it before running.
 set -euo pipefail
@@ -29,21 +29,21 @@ SHA="$(shasum -a 256 "$ZIP" | cut -d' ' -f1)"
 
 git tag "$TAG"
 git push origin "$TAG"
-gh release create "$TAG" "$ZIP" --title "ScreenVibe $VERSION" --notes "Download ScreenVibe-$VERSION.zip, unzip it, and move ScreenVibe to Applications. Or: brew install --cask VibeScreenApp/tap/screenvibe"
+gh release create "$TAG" "$ZIP" --title "ScreenVibe $VERSION" --notes "Download ScreenVibe-$VERSION.zip, unzip it, and move ScreenVibe to Applications. Or: brew install --cask ScreenVibe/tap/screenvibe"
 
 # The cask: the recipe brew reads. Kept in its own repo, which brew calls a tap.
 TAP="$OUT/homebrew-tap"
-gh repo clone VibeScreenApp/homebrew-tap "$TAP" -- -q
+gh repo clone ScreenVibe/homebrew-tap "$TAP" -- -q
 mkdir -p "$TAP/Casks"
 cat > "$TAP/Casks/screenvibe.rb" <<CASK
 cask "screenvibe" do
   version "$VERSION"
   sha256 "$SHA"
 
-  url "https://github.com/VibeScreenApp/ScreenVibe/releases/download/v#{version}/ScreenVibe-#{version}.zip"
+  url "https://github.com/ScreenVibe/ScreenVibe/releases/download/v#{version}/ScreenVibe-#{version}.zip"
   name "ScreenVibe"
   desc "Mark up your screen and send it straight to Claude Code"
-  homepage "https://github.com/VibeScreenApp/ScreenVibe"
+  homepage "https://github.com/ScreenVibe/ScreenVibe"
 
   depends_on macos: ">= :sonoma"
 
@@ -53,7 +53,7 @@ cask "screenvibe" do
 
   caveats <<~EOS
     Add the Claude Code add-on:
-      claude plugin marketplace add VibeScreenApp/ScreenVibe
+      claude plugin marketplace add ScreenVibe/ScreenVibe
       claude plugin install screenvibe@screenvibe
   EOS
 end

@@ -20,17 +20,17 @@ Needs macOS 14 or newer, and Claude Code 2.1.305 or newer (the add-on uses Claud
 With Homebrew:
 
 ```
-brew install --cask VibeScreenApp/tap/screenvibe
+brew install --cask ScreenVibe/tap/screenvibe
 ```
 
-Or download the zip from [Releases](https://github.com/VibeScreenApp/ScreenVibe/releases), unzip it, and move ScreenVibe to Applications. Either way, open it once; its icon appears in the menu bar.
+Or download the zip from [Releases](https://github.com/ScreenVibe/ScreenVibe/releases), unzip it, and move ScreenVibe to Applications. Either way, open it once; its icon appears in the menu bar.
 
 ### Or build it yourself
 
 You need the Xcode command line tools, version 15.3 or newer (`xcode-select --install`).
 
 ```
-git clone https://github.com/VibeScreenApp/ScreenVibe.git
+git clone https://github.com/ScreenVibe/ScreenVibe.git
 cd ScreenVibe
 ./build.sh
 ```
@@ -42,7 +42,7 @@ To have ScreenVibe start when you log in, choose **Start at login** in its menu 
 ### Then add the Claude Code add-on
 
 ```
-claude plugin marketplace add VibeScreenApp/ScreenVibe
+claude plugin marketplace add ScreenVibe/ScreenVibe
 claude plugin install screenvibe@screenvibe
 ```
 
@@ -87,7 +87,7 @@ The app and the add-on only share files in `~/.screenvibe/`:
 2. On Send, the app writes the pictures and the text to that session's folder in `~/.screenvibe/inbox/`.
 3. The add-on checks its inbox and, when the session is idle, submits the markup as the next prompt.
 
-How to read a markup is in `~/.VibeScreenApp/ScreenVibe-guide.md`, which the app rewrites whenever the tools change. The first markup sent to a chat asks Claude to read it; later ones only name it. Your tools are saved in `~/.screenvibe/tools.json`.
+How to read a markup is in `~/.ScreenVibe/ScreenVibe-guide.md`, which the app rewrites whenever the tools change. The first markup sent to a chat asks Claude to read it; later ones only name it. Your tools are saved in `~/.screenvibe/tools.json`.
 
 ## Make it yours
 
