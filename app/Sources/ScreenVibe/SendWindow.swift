@@ -194,7 +194,7 @@ final class SendWindow: NSPanel, NSTextFieldDelegate {
         sessions = live
         popup.removeAllItems()
         if live.isEmpty {
-            popup.addItem(withTitle: "No open Claude Code session has the ScreenVibe add-on.")
+            popup.addItem(withTitle: "No sessions. Type /screenvibe in a Claude Code session to link it.")
             popup.isEnabled = false
             sendButton.isEnabled = false
             return

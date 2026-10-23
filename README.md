@@ -48,6 +48,8 @@ claude plugin install screenvibe@screenvibe
 
 In sessions that are already open, run `/reload-plugins`. Each session with the add-on shows up in ScreenVibe's Send menu. In the Claude desktop app, start a new local Code session.
 
+If a session goes missing from the Send menu (say, after it lost its connection), type `/screenvibe` in it to link it again.
+
 A markup points Claude at pictures in `~/.screenvibe`, outside your project, so Claude Code asks before reading them. To let it read them without asking, add the folder to `~/.claude/settings.json`, with your own user name:
 
 ```
