@@ -224,9 +224,16 @@ final class SendWindow: NSPanel, NSTextFieldDelegate {
         (obj.object as? GrowingField)?.fit()
         validate()
     }
+
+    func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+        guard selector == #selector(NSResponder.insertNewline(_:)), NSApp.currentEvent?.modifierFlags.contains(.shift) == true
+        else { return false }
+        textView.insertNewlineIgnoringFieldEditor(nil)
+        return true
+    }
 }
 
-/// A text box that wraps and grows down as the words need more lines. ⌥Return starts a new line.
+/// A text box that wraps and grows down as the words need more lines. Shift-Return (or ⌥Return) starts a new line.
 final class GrowingField: NSTextField {
     var width: CGFloat = 400 { didSet { widthConstraint.constant = width; fit() } }
     private let minHeight: CGFloat

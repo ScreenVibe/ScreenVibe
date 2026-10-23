@@ -64,7 +64,7 @@ A markup points Claude at pictures in `~/.screenvibe`, outside your project, so 
 - Pick a color under the tools to color the next marks, or the selected mark. Click it again to go back to the tool's color. The message names the color, so your note can say what it means.
 - Every mark has a round note button at its top-right corner. Click it to add a note for that mark.
 - **Select (V)** moves marks. It also picks any part of the frozen screen, even outside the box: ⌘C copies it and ⌘V pastes it into the box.
-- Click **Send** (or press Return). The Send window shows the picture and every numbered request, which you can edit, plus a box for a note about the whole markup and the session to send to. Return sends, Esc goes back to the markup.
+- Click **Send** (or press Return). The Send window shows the picture and every numbered request, which you can edit, plus a box for a note about the whole markup and the session to send to. Return sends, Shift-Return starts a new line, Esc goes back to the markup.
 - **Copy** puts the picture and the words on the clipboard. **Discard** (or Esc) closes.
 
 Each palette has a ⋯ menu for Orientation (Vertical or Horizontal) and Size (Expanded, with names, or Condensed, symbols only). Drag a palette by its dotted corner. Right-click the menu bar icon for **Edit tools…** to change the tools or make new ones.

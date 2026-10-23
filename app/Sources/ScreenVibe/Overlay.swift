@@ -861,7 +861,11 @@ final class Canvas: NSView, NSTextFieldDelegate {
     }
 
     func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
-        if selector == #selector(NSResponder.insertNewline(_:)) { commitEditor(); return true }
+        if selector == #selector(NSResponder.insertNewline(_:)) {
+            if NSApp.currentEvent?.modifierFlags.contains(.shift) == true { textView.insertNewlineIgnoringFieldEditor(nil) }
+            else { commitEditor() }
+            return true
+        }
         if selector == #selector(NSResponder.cancelOperation(_:)) { commitEditor(cancel: true); return true }
         return false
     }
