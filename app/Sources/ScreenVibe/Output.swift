@@ -18,29 +18,36 @@ enum Output {
         return f.string(from: Date())
     }
 
-    /// The marked picture alone, for the Send window.
-    static func preview(frozen: Frozen, crop: CGRect, marks: [Mark]) -> NSImage? {
+    static func cleanPicture(frozen: Frozen, crop: CGRect) -> CGImage? {
         let s = frozen.scale
-        let px = CGRect(x: crop.minX * s, y: crop.minY * s, width: crop.width * s, height: crop.height * s).integral
-        guard let clean = frozen.image.cropping(to: px), let marked = render(clean: clean, crop: crop, scale: s, marks: marks)
-        else { return nil }
+        return frozen.image.cropping(to: CGRect(x: crop.minX * s, y: crop.minY * s, width: crop.width * s,
+                                                height: crop.height * s).integral)
+    }
+
+    /// The text on the picture, read once.
+    static func read(frozen: Frozen, crop: CGRect) -> [Seen] {
+        guard let clean = cleanPicture(frozen: frozen, crop: crop) else { return [] }
+        return read(clean, crop: crop, scale: frozen.scale)
+    }
+
+    /// The marked picture alone, for the Send window, with `hidden` covered.
+    static func preview(frozen: Frozen, crop: CGRect, marks: [Mark], hidden: [CGRect] = []) -> NSImage? {
+        guard let raw = cleanPicture(frozen: frozen, crop: crop) else { return nil }
+        let clean = Private.cover(raw, spots: hidden, crop: crop, scale: frozen.scale)
+        guard let marked = render(clean: clean, crop: crop, scale: frozen.scale, marks: marks) else { return nil }
         return NSImage(cgImage: marked, size: crop.size)
     }
 
     /// `briefed`: this chat has already been pointed at the guide.
-    /// The words read under each mark, for the Send window's warnings.
-    static func wordsUnder(frozen: Frozen, crop: CGRect, marks: [Mark]) -> [String] {
+    /// `spots`: nil when Blur private info is off; otherwise the spots to cover (the user may have shown some again),
+    /// and the window title, address and document are cleaned too.
+    static func make(frozen: Frozen, crop: CGRect, marks: [Mark], note: String = "", briefed: Bool = false,
+                     seen: [Seen]? = nil, spots: [Spot]? = nil) -> MarkupOutput? {
         let s = frozen.scale
-        let px = CGRect(x: crop.minX * s, y: crop.minY * s, width: crop.width * s, height: crop.height * s).integral
-        guard let clean = frozen.image.cropping(to: px) else { return [] }
-        return recognize(clean, crop: crop, scale: s, marks: marks)
-    }
-
-    static func make(frozen: Frozen, crop: CGRect, marks: [Mark], note: String = "", briefed: Bool = false) -> MarkupOutput? {
-        let s = frozen.scale
-        let px = CGRect(x: crop.minX * s, y: crop.minY * s, width: crop.width * s, height: crop.height * s).integral
-        guard let clean = frozen.image.cropping(to: px), let marked = render(clean: clean, crop: crop, scale: s, marks: marks)
-        else { return nil }
+        let hidden = (spots ?? []).filter(\.isOn)
+        guard let raw = cleanPicture(frozen: frozen, crop: crop) else { return nil }
+        let clean = Private.cover(raw, spots: hidden.map(\.rect), crop: crop, scale: s)
+        guard let marked = render(clean: clean, crop: crop, scale: s, marks: marks) else { return nil }
 
         let folder = root.appendingPathComponent("markups").appendingPathComponent(stamp())
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -49,9 +56,9 @@ enum Output {
         try? png(marked)?.write(to: markedURL)
         try? png(clean)?.write(to: cleanURL)
 
-        let words = recognize(clean, crop: crop, scale: s, marks: marks)
+        let words = recognize(seen ?? read(raw, crop: crop, scale: s), marks: marks, hidden: hidden.map(\.rect))
         let prompt = describe(frozen: frozen, crop: crop, marks: marks, words: words, markedURL: markedURL, cleanURL: cleanURL,
-                              note: note, briefed: briefed)
+                              note: note, briefed: briefed, hidden: spots.map { _ in hidden.map(\.why) })
         try? prompt.write(to: folder.appendingPathComponent("prompt.txt"), atomically: true, encoding: .utf8)
         return MarkupOutput(folder: folder, marked: NSImage(cgImage: marked, size: crop.size), prompt: prompt)
     }
@@ -79,18 +86,35 @@ enum Output {
 
     // MARK: words under each mark
 
-    /// Reads the whole clean picture once, then gives each mark the words whose middle sits inside it.
-    static func recognize(_ clean: CGImage, crop: CGRect, scale: CGFloat, marks: [Mark]) -> [String] {
+    /// Reads the whole clean picture once: each line of text and where it sits, in screen points.
+    static func read(_ clean: CGImage, crop: CGRect, scale: CGFloat) -> [Seen] {
         let req = VNRecognizeTextRequest()
         req.recognitionLevel = .accurate
         req.usesLanguageCorrection = true
         req.automaticallyDetectsLanguage = true   // not only English
         try? VNImageRequestHandler(cgImage: clean).perform([req])
         let w = CGFloat(clean.width) / scale, h = CGFloat(clean.height) / scale
-        let found: [(String, CGPoint)] = (req.results ?? []).compactMap { r in
-            guard let s = r.topCandidates(1).first?.string else { return nil }
-            let b = r.boundingBox
-            return (s, CGPoint(x: crop.minX + b.midX * w, y: crop.minY + (1 - b.midY) * h))
+        func onScreen(_ b: CGRect) -> CGRect {
+            CGRect(x: crop.minX + b.minX * w, y: crop.minY + (1 - b.maxY) * h, width: b.width * w, height: b.height * h)
+        }
+        return (req.results ?? []).compactMap { r in
+            guard let c = r.topCandidates(1).first else { return nil }
+            let whole = onScreen(r.boundingBox)
+            return Seen(text: c.string, rect: whole, part: { range in
+                (try? c.boundingBox(for: range)).map { onScreen($0.boundingBox) } ?? whole
+            })
+        }
+    }
+
+    /// Gives each mark the words whose middle sits inside it. A line under a covered spot has its private part hidden.
+    static func recognize(_ seen: [Seen], marks: [Mark], hidden: [CGRect] = []) -> [String] {
+        let found: [(String, CGPoint)] = seen.map { s in
+            var t = s.text
+            if hidden.contains(where: { $0.intersects(s.rect) }) {
+                let cleaned = Private.scrub(t)
+                t = cleaned == t ? "[hidden]" : cleaned
+            }
+            return (t, CGPoint(x: s.rect.midX, y: s.rect.midY))
         }
         return marks.map { m in
             guard m.tool != nil, m.tool?.shape != .text else { return "" }
@@ -107,7 +131,7 @@ enum Output {
     static func name(of m: Mark) -> String { m.tool?.name ?? "Pasted piece" }
 
     static func describe(frozen: Frozen, crop: CGRect, marks: [Mark], words: [String], markedURL: URL, cleanURL: URL,
-                         note: String, briefed: Bool) -> String {
+                         note: String, briefed: Bool, hidden: [Spot.Why]? = nil) -> String {
         func n(_ v: CGFloat) -> Int { Int(v.rounded()) }
         func pt(_ p: CGPoint) -> String { "\(n(p.x - crop.minX)),\(n(p.y - crop.minY))" }
         func box(_ r: CGRect) -> String { "\(pt(r.origin)) \(n(r.width))×\(n(r.height))" }
@@ -115,13 +139,19 @@ enum Output {
         lines.append(briefed
             ? "ScreenVibe markup (how to read it: \(Guide.url.path))."
             : "ScreenVibe markup. Before acting, read the guide once: \(Guide.url.path). Later markups in this chat use the same format.")
-        let c = frozen.context
+        var c = frozen.context
+        if hidden != nil {
+            c.window = Private.scrub(c.window)
+            c.url = c.url.map(Private.scrubURL)
+            c.document = c.document.map(Private.scrub)
+        }
         if !c.app.isEmpty { lines.append("App: \(c.app)\(c.bundleID.isEmpty ? "" : " (\(c.bundleID))").") }
         if !c.window.isEmpty { lines.append("Window: \(c.window)") }
         if let u = c.url { lines.append("URL: \(u)") }
         if let d = c.document { lines.append("Document: \(d)") }
         if let w = window(under: crop, frozen: frozen), w.app != c.app {
-            lines.append("Under the picture: \(w.title.isEmpty ? w.app : "\(w.app) — \(w.title)").")
+            let title = hidden == nil ? w.title : Private.scrub(w.title)
+            lines.append("Under the picture: \(title.isEmpty ? w.app : "\(w.app) — \(title)").")
         }
         lines.append("Picture: \(n(crop.width))×\(n(crop.height)) points, saved at \(Int(frozen.scale.rounded()))×.")
         lines.append("Marked: \(markedURL.path)")
@@ -152,6 +182,10 @@ enum Output {
             if !extra.isEmpty { line += " Note: \(extra)\(extra.hasSuffix(".") || extra.hasSuffix("?") || extra.hasSuffix("!") ? "" : ".")" }
             lines.append(line)
         }
+        var whys = hidden ?? []
+        let context = [frozen.context.window, frozen.context.url ?? "", frozen.context.document ?? ""].joined()
+        if hidden != nil, [c.window, c.url ?? "", c.document ?? ""].joined() != context { whys.append(.key) }
+        if let said = Private.summary(whys) { lines += ["", said] }
         return lines.joined(separator: "\n")
     }
 

@@ -170,7 +170,9 @@ final class OverlayController {
 
     func copyMarkup() {
         canvas.commitEditor()
-        guard let out = Output.make(frozen: frozen, crop: canvas.outputArea, marks: canvas.marks) else { return }
+        let seen = Output.read(frozen: frozen, crop: canvas.outputArea)
+        guard let out = Output.make(frozen: frozen, crop: canvas.outputArea, marks: canvas.marks, seen: seen,
+                                    spots: Private.isOn ? Private.find(seen) : nil) else { return }
         Output.copyToPasteboard(out)
         close()
         Toast.show("Copied the markup and its words", on: frozen.screen)
@@ -180,12 +182,14 @@ final class OverlayController {
     func openSend() {
         if let w = sendWindow { w.makeKeyAndOrderFront(nil); return }
         canvas.commitEditor()  // words still being typed go with the markup
-        guard let preview = Output.preview(frozen: frozen, crop: canvas.outputArea, marks: canvas.marks) else { return }
-        let w = SendWindow(preview: preview, marks: canvas.marks,
-                           found: Output.wordsUnder(frozen: frozen, crop: canvas.outputArea, marks: canvas.marks))
+        let crop = canvas.outputArea, marks = canvas.marks, frozen = frozen
+        let seen = Output.read(frozen: frozen, crop: crop)
+        guard Output.preview(frozen: frozen, crop: crop, marks: marks) != nil else { return }
+        let w = SendWindow(marks: marks, found: Output.recognize(seen, marks: marks), spots: Private.find(seen), origin: crop.origin,
+                           picture: { Output.preview(frozen: frozen, crop: crop, marks: marks, hidden: $0) })
         w.onCancel = { [weak self] in self?.closeSendWindow() }
-        w.onSend = { [weak self] words, markNotes, note, session in
-            self?.send(to: session, words: words, markNotes: markNotes, note: note)
+        w.onSend = { [weak self] words, markNotes, note, session, spots in
+            self?.send(to: session, words: words, markNotes: markNotes, note: note, seen: seen, spots: spots)
         }
         sendWindow = w
         w.present(on: frozen.screen)
@@ -198,7 +202,7 @@ final class OverlayController {
         window.makeFirstResponder(canvas)
     }
 
-    private func send(to s: SessionInfo, words: [String], markNotes: [String?], note: String) {
+    private func send(to s: SessionInfo, words: [String], markNotes: [String?], note: String, seen: [Seen], spots: [Spot]?) {
         var marks = canvas.marks
         for i in marks.indices where i < words.count {
             if marks[i].asksForWords {
@@ -209,7 +213,7 @@ final class OverlayController {
             }
         }
         guard let out = Output.make(frozen: frozen, crop: canvas.outputArea, marks: marks, note: note,
-                                    briefed: Sessions.isBriefed(s)) else { return }
+                                    briefed: Sessions.isBriefed(s), seen: seen, spots: spots) else { return }
         do {
             try Sessions.deliver(out, to: s)
             Sessions.lastId = s.sessionId

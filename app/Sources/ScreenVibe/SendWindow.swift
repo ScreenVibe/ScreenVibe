@@ -3,7 +3,8 @@ import AppKit
 /// Opens on Send: the marked picture, every numbered request (editable), a note for the whole markup and the session.
 /// Return sends, Esc goes back to the markup.
 final class SendWindow: NSPanel, NSTextFieldDelegate {
-    var onSend: ((_ words: [String], _ markNotes: [String?], _ note: String, _ session: SessionInfo) -> Void)?
+    /// `spots`: nil when Blur private info is off.
+    var onSend: ((_ words: [String], _ markNotes: [String?], _ note: String, _ session: SessionInfo, _ spots: [Spot]?) -> Void)?
     var onCancel: (() -> Void)?
 
     private static let columnWidth: CGFloat = 480
@@ -14,9 +15,15 @@ final class SendWindow: NSPanel, NSTextFieldDelegate {
     private let sendButton = NSButton(title: "Send", target: nil, action: nil)
     private var sessions: [SessionInfo] = []
     private var refresh: Timer?
+    private let picture: PicturePreview
+    private let blurBox = NSButton(checkboxWithTitle: "Blur private info", target: nil, action: nil)
+    private let blurNote = NSTextField(labelWithString: "")
 
     /// `found`: the words read under each mark, to warn about a Wording box over empty space.
-    init(preview: NSImage, marks: [Mark], found: [String]) {
+    /// `spots`: what looks private, in screen points; `origin`: the picture's top-left corner there.
+    /// `picture` draws the marked picture with the given spots covered.
+    init(marks: [Mark], found: [String], spots: [Spot], origin: CGPoint, picture: @escaping ([CGRect]) -> NSImage?) {
+        self.picture = PicturePreview(spots: spots, origin: origin, draw: picture)
         super.init(contentRect: CGRect(x: 0, y: 0, width: 960, height: 400), styleMask: [.titled, .closable, .nonactivatingPanel],
                    backing: .buffered, defer: false)
         title = "Send the markup"
@@ -25,19 +32,16 @@ final class SendWindow: NSPanel, NSTextFieldDelegate {
         isReleasedWhenClosed = false
         hidesOnDeactivate = false
 
-        // The picture, as large as fits the left column.
-        let pictureWidth: CGFloat = 430
-        let ratio = preview.size.height / max(1, preview.size.width)
-        let image = NSImageView(image: preview)
-        image.imageScaling = .scaleProportionallyUpOrDown
-        image.wantsLayer = true
-        image.layer?.cornerRadius = 6
-        image.layer?.borderWidth = 1
-        image.layer?.borderColor = NSColor.separatorColor.cgColor
-        image.layer?.masksToBounds = true
-        image.translatesAutoresizingMaskIntoConstraints = false
-        image.widthAnchor.constraint(equalToConstant: pictureWidth).isActive = true
-        image.heightAnchor.constraint(equalToConstant: min(560, pictureWidth * ratio)).isActive = true
+        // The picture, as large as fits the left column, with what looks private covered. A click shows a spot again.
+        let image = self.picture
+        image.onChange = { [weak self] in self?.showBlurNote() }
+        image.isBlurring = Private.isOn
+        blurNote.font = .systemFont(ofSize: 12)
+        blurNote.textColor = .secondaryLabelColor
+        let left = NSStackView(views: [image, blurNote])
+        left.orientation = .vertical
+        left.alignment = .leading
+        left.spacing = 6
 
         // The numbered requests, then the note for the whole markup.
         let column = NSStackView()
@@ -94,7 +98,7 @@ final class SendWindow: NSPanel, NSTextFieldDelegate {
         fit.priority = .defaultHigh
         fit.isActive = true
 
-        let top = NSStackView(views: [image, scroll])
+        let top = NSStackView(views: [left, scroll])
         top.alignment = .top
         top.spacing = 20
 
@@ -110,7 +114,11 @@ final class SendWindow: NSPanel, NSTextFieldDelegate {
         sendButton.bezelColor = NSColor(hex: "#D6342C")
         let spacer = NSView()
         spacer.setContentHuggingPriority(.init(1), for: .horizontal)
-        let foot = NSStackView(views: [sendTo, popup, spacer, cancel, sendButton])
+        blurBox.state = Private.isOn ? .on : .off
+        blurBox.target = self
+        blurBox.action = #selector(blurToggled)
+        let foot = NSStackView(views: [sendTo, popup, blurBox, spacer, cancel, sendButton])
+        foot.setCustomSpacing(22, after: popup)
         foot.spacing = 10
 
         let all = NSStackView(views: [top, foot])
@@ -207,6 +215,19 @@ final class SendWindow: NSPanel, NSTextFieldDelegate {
 
     @objc private func pickedSession() {}
 
+    @objc private func blurToggled() {
+        Private.isOn = blurBox.state == .on
+        picture.isBlurring = Private.isOn
+    }
+
+    private func showBlurNote() {
+        let all = picture.spots.count, on = picture.spots.filter(\.isOn).count
+        blurNote.stringValue = !picture.isBlurring ? "Blur is off. Nothing is hidden."
+            : all == 0 ? "Nothing private found."
+            : on == all ? "\(all) \(all == 1 ? "spot" : "spots") blurred. Click one to show it again."
+            : "\(on) of \(all) spots blurred. Click a spot to blur or show it."
+    }
+
     private func validate() {
         sendButton.isEnabled = !sessions.isEmpty
     }
@@ -215,7 +236,7 @@ final class SendWindow: NSPanel, NSTextFieldDelegate {
         let i = popup.indexOfSelectedItem
         guard sendButton.isEnabled, i >= 0, i < sessions.count else { return }
         let extras = fields.indices.map { markNotes[$0]?.text }
-        onSend?(fields.map(\.text), extras, note.text, sessions[i])
+        onSend?(fields.map(\.text), extras, note.text, sessions[i], picture.isBlurring ? picture.spots : nil)
     }
 
     @objc private func cancelPressed() { onCancel?() }
@@ -294,3 +315,100 @@ private final class FlippedView: NSView {
 }
 
 
+
+/// The marked picture in the Send window. Covered spots get a small tag saying why; a click shows or covers one.
+private final class PicturePreview: NSView {
+    private(set) var spots: [Spot]
+    var isBlurring = true { didSet { redraw() } }
+    var onChange: (() -> Void)?
+    private let draw: ([CGRect]) -> NSImage?
+    private var image: NSImage?
+    private let width: CGFloat = 430
+
+    init(spots: [Spot], origin: CGPoint, draw: @escaping ([CGRect]) -> NSImage?) {
+        self.spots = spots
+        self.origin = origin
+        self.draw = draw
+        super.init(frame: .zero)
+        image = draw([])
+        let size = image?.size ?? CGSize(width: 1, height: 1)
+        translatesAutoresizingMaskIntoConstraints = false
+        widthAnchor.constraint(equalToConstant: width).isActive = true
+        heightAnchor.constraint(equalToConstant: min(560, width * size.height / max(1, size.width))).isActive = true
+        wantsLayer = true
+        layer?.cornerRadius = 6
+        layer?.borderWidth = 1
+        layer?.borderColor = NSColor.separatorColor.cgColor
+        layer?.masksToBounds = true
+        redraw()
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+    override var isFlipped: Bool { true }
+
+    private func redraw() {
+        image = draw(isBlurring ? spots.filter(\.isOn).map(\.rect) : [])
+        needsDisplay = true
+        window?.invalidateCursorRects(for: self)
+        onChange?()
+    }
+
+    /// Where the picture sits in the view, and how a spot (screen points) maps into it.
+    private var fitted: CGRect {
+        guard let s = image?.size, s.width > 0, s.height > 0 else { return bounds }
+        let k = min(bounds.width / s.width, bounds.height / s.height)
+        return CGRect(x: (bounds.width - s.width * k) / 2, y: (bounds.height - s.height * k) / 2,
+                      width: s.width * k, height: s.height * k)
+    }
+
+    private let origin: CGPoint
+    private func place(_ r: CGRect) -> CGRect {
+        guard let s = image?.size, s.width > 0 else { return .zero }
+        let f = fitted, k = f.width / s.width
+        return CGRect(x: f.minX + (r.minX - origin.x) * k, y: f.minY + (r.minY - origin.y) * k,
+                      width: r.width * k, height: r.height * k)
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.textBackgroundColor.setFill()
+        bounds.fill()
+        image?.draw(in: fitted)
+        guard isBlurring else { return }
+        for s in spots {
+            let r = place(s.rect)
+            if !s.isOn {
+                let p = NSBezierPath(roundedRect: r, xRadius: 3, yRadius: 3)
+                p.lineWidth = 1.5
+                p.setLineDash([4, 3], count: 2, phase: 0)
+                NSColor.systemBlue.setStroke()
+                p.stroke()
+            }
+            tag(s.isOn ? s.why.rawValue : "shown", at: r)
+        }
+    }
+
+    private func tag(_ text: String, at r: CGRect) {
+        let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 10, weight: .semibold),
+                                                    .foregroundColor: NSColor.white]
+        let size = (text as NSString).size(withAttributes: attrs)
+        var box = CGRect(x: r.maxX + 4, y: r.midY - (size.height + 2) / 2, width: size.width + 10, height: size.height + 2)
+        if box.maxX > bounds.maxX - 2 { box.origin.x = max(2, r.maxX - box.width) ; box.origin.y = r.minY - box.height - 2 }
+        if box.minY < 2 { box.origin.y = r.maxY + 2 }
+        NSColor(white: 0.1, alpha: 0.85).setFill()
+        NSBezierPath(roundedRect: box, xRadius: 4, yRadius: 4).fill()
+        (text as NSString).draw(at: CGPoint(x: box.minX + 5, y: box.minY + 1), withAttributes: attrs)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        guard isBlurring else { return }
+        let p = convert(event.locationInWindow, from: nil)
+        guard let i = spots.indices.last(where: { place(spots[$0].rect).insetBy(dx: -3, dy: -3).contains(p) }) else { return }
+        spots[i].isOn.toggle()
+        redraw()
+    }
+
+    override func resetCursorRects() {
+        guard isBlurring else { return }
+        for s in spots { addCursorRect(place(s.rect), cursor: .pointingHand) }
+    }
+}

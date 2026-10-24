@@ -19,6 +19,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         Self.moveFromUandI()
         Self.deleteOldMarkups()
+        if let i = CommandLine.arguments.firstIndex(of: "--private"), i + 1 < CommandLine.arguments.count {
+            checkPrivate(path: CommandLine.arguments[i + 1])
+        }
         registerHotKey()
         Guide.write()
         let args = CommandLine.arguments
@@ -33,6 +36,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         if let i = args.firstIndex(of: "--demo"), i + 1 < args.count { demo(path: args[i + 1]) }
+    }
+
+    /// Checks Blur private info on a saved picture: prints what it would hide, and writes <picture>-private.png.
+    private func checkPrivate(path: String) {
+        guard let img = NSImage(contentsOfFile: path)?.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+            print("Could not open \(path)"); exit(1)
+        }
+        let crop = CGRect(x: 0, y: 0, width: img.width, height: img.height)
+        let seen = Output.read(img, crop: crop, scale: 1)
+        let spots = Private.find(seen)
+        for s in seen { print("read: \(s.text)  →  \(Private.scrub(s.text))") }
+        for s in spots { print("hide: \(s.why.rawValue) at \(Int(s.rect.minX)),\(Int(s.rect.minY)) \(Int(s.rect.width))×\(Int(s.rect.height))") }
+        print(Private.summary(spots.map(\.why)) ?? "Nothing private found.")
+        for u in CommandLine.arguments.dropFirst(CommandLine.arguments.firstIndex(of: path)! + 1) { print("address: \(Private.scrubURL(u))") }
+        let out = URL(fileURLWithPath: path).deletingPathExtension().path + "-private.png"
+        try? Output.png(Private.cover(img, spots: spots.map(\.rect), crop: crop, scale: 1))?.write(to: URL(fileURLWithPath: out))
+        print("Wrote \(out)")
+        exit(0)
     }
 
     /// Opens the overlay on a saved picture instead of the live screen, with sample marks.
@@ -77,10 +98,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if ProcessInfo.processInfo.environment["SCREENVIBE_DEMO_SEND"] != nil {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 o.openSend()
-                if let path = ProcessInfo.processInfo.environment["SCREENVIBE_DUMP_SEND"], let v = NSApp.keyWindow?.contentView,
-                   let rep = v.bitmapImageRepForCachingDisplay(in: v.bounds) {
-                    v.cacheDisplay(in: v.bounds, to: rep)
-                    try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
+                // Only ScreenVibe's own Send window is pictured.
+                if let path = ProcessInfo.processInfo.environment["SCREENVIBE_DUMP_SEND"], let w = NSApp.keyWindow {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                        if let img = CGWindowListCreateImage(.null, .optionIncludingWindow, CGWindowID(w.windowNumber), [.boundsIgnoreFraming]) {
+                            try? Output.png(img)?.write(to: URL(fileURLWithPath: path))
+                        }
+                    }
                 }
             }
         }

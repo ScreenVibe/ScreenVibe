@@ -65,6 +65,7 @@ A markup points Claude at pictures in `~/.screenvibe`, outside your project, so 
 - Every mark has a round note button at its top-right corner. Click it to add a note for that mark.
 - **Select (V)** moves marks. It also picks any part of the frozen screen, even outside the box: ⌘C copies it and ⌘V pastes it into the box.
 - Click **Send** (or press Return). The Send window shows the picture and every numbered request, which you can edit, plus a box for a note about the whole markup and the session to send to. Return sends, Shift-Return starts a new line, Esc goes back to the markup.
+- **Blur private info**, in the Send window, is on unless you turn it off. Before sending, it covers what looks like login info (passwords, keys, tokens), bank numbers (cards, IBANs, account and routing numbers, Social Security numbers) and text written to give orders to an AI ("ignore previous instructions…"). The text Claude gets is cleaned too, web address included. Each covered spot has a tag saying why; click it to show it again. It works by rules, on your Mac, so it can miss things or cover too much: look before you send. Copy uses the same setting.
 - **Copy** puts the picture and the words on the clipboard. **Discard** (or Esc) closes.
 
 Each palette has a ⋯ menu for Orientation (Vertical or Horizontal) and Size (Expanded, with names, or Condensed, symbols only). Drag a palette by its dotted corner. Right-click the menu bar icon for **Edit tools…** to change the tools or make new ones.
@@ -104,13 +105,14 @@ The code is small and plain. Where things live:
 | `app/Sources/ScreenVibe/Palette.swift` | The floating palettes |
 | `app/Sources/ScreenVibe/SendWindow.swift` | The Send window |
 | `app/Sources/ScreenVibe/Output.swift` | The pictures and the text a session receives |
+| `app/Sources/ScreenVibe/Private.swift` | Blur private info: what counts as private, and the covering |
 | `app/Sources/ScreenVibe/Guide.swift` | The guide Claude reads |
 | `app/Sources/ScreenVibe/Context.swift` | Front app, window, file and web address |
 | `mod/hooks/register.ts` | The Claude Code add-on |
 
 Ideas people might build: an MCP server so other AI apps can fetch markups, a Copy that works well in web chats, more tools, Windows or Linux versions.
 
-For checking the look without clicking: `ScreenVibe --demo <picture.png>` opens the overlay on a saved picture, with sample marks. `ScreenVibe --print-context` shows what ScreenVibe reads from the app in front after 3 seconds.
+For checking the look without clicking: `ScreenVibe --demo <picture.png>` opens the overlay on a saved picture, with sample marks. `ScreenVibe --private <picture.png>` shows what Blur private info would cover and writes the covered picture next to it. `ScreenVibe --print-context` shows what ScreenVibe reads from the app in front after 3 seconds.
 
 ## License
 
