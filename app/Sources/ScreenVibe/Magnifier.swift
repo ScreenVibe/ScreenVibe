@@ -12,6 +12,7 @@ final class Magnifier: NSObject {
     var onClose: (() -> Void)?
     var onDenied: (() -> Void)?
     private(set) var framesShown = 0
+    private var spaceWatch: NSObjectProtocol?
     private let lens: LensPanel
     private let bar: Palette
     private let zoomLabel = NSTextField(labelWithString: "")
@@ -38,6 +39,14 @@ final class Magnifier: NSObject {
         lens.view.onMoved = { [weak self] in self?.followLens() }
         lens.view.onMoveEnded = { [weak self] in self?.saveAndRestartIfMoved() }
         lens.view.onZoomWheel = { [weak self] up in self?.step(up ? 1 : -1) }
+        // A stream can stop when the screen changes under it (a full-screen app, another Space): start it again.
+        output.onStopped = { [weak self] in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { if self?.lens.isVisible == true { Task { await self?.startStream() } } }
+        }
+        spaceWatch = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification,
+                                                                       object: nil, queue: .main) { [weak self] _ in
+            if self?.lens.isVisible == true { Task { await self?.startStream() } }
+        }
         lens.onEscape = { [weak self] in self?.close() }
         output.onFrame = { [weak self] surface in self?.lens.view.show(surface); self?.framesShown += 1 }
         buildBar()
@@ -54,6 +63,8 @@ final class Magnifier: NSObject {
     }
 
     func close() {
+        if let spaceWatch { NSWorkspace.shared.notificationCenter.removeObserver(spaceWatch) }
+        output.writeLog()
         speech.stopSpeaking(at: .immediate)
         stream?.stopCapture(completionHandler: nil)
         stream = nil
@@ -173,7 +184,7 @@ final class Magnifier: NSObject {
             // The box itself is left out of the picture, so it shows what's under it.
             let me = content.applications.filter { $0.processID == ProcessInfo.processInfo.processIdentifier }
             let filter = SCContentFilter(display: display, excludingApplications: me, exceptingWindows: [])
-            let s = SCStream(filter: filter, configuration: config, delegate: nil)
+            let s = SCStream(filter: filter, configuration: config, delegate: output)
             try s.addStreamOutput(output, type: .screen, sampleHandlerQueue: output.queue)
             try await s.startCapture()
             stream = s
@@ -233,7 +244,21 @@ final class Magnifier: NSObject {
         }
         speakTile.fillColor = NSColor(hex: "#2A6EE8")
         speakTile.needsDisplay = true
-        speech.speak(AVSpeechUtterance(string: text))
+        let u = AVSpeechUtterance(string: text)
+        u.voice = Self.bestVoice()
+        speech.speak(u)
+    }
+
+    /// The best voice installed for the Mac's language: Premium, then Enhanced, then the plain default.
+    /// Better ones are downloaded in System Settings › Accessibility › Read & Speak › System voice › Manage Voices.
+    static func bestVoice() -> AVSpeechSynthesisVoice? {
+        let lang = AVSpeechSynthesisVoice.currentLanguageCode()
+        let base = String(lang.prefix(2))
+        let mine = AVSpeechSynthesisVoice.speechVoices().filter { $0.language.hasPrefix(base) }
+        func rank(_ v: AVSpeechSynthesisVoice) -> Int {
+            (v.quality == .premium ? 4 : v.quality == .enhanced ? 2 : 0) + (v.language == lang ? 1 : 0)
+        }
+        return mine.max { rank($0) < rank($1) } ?? AVSpeechSynthesisVoice(language: lang)
     }
 
     fileprivate func speaking(_ range: NSRange) {
@@ -261,18 +286,48 @@ extension Magnifier: AVSpeechSynthesizerDelegate {
 }
 
 /// Receives the stream's frames off the main thread and hands the picture to the box.
-private final class FrameOutput: NSObject, SCStreamOutput, @unchecked Sendable {
+/// Also counts what the stream sent, by kind, and why it stopped: written to ~/.screenvibe/magnifier.log on close,
+/// to find out why the box stays dark over some apps. No picture is kept.
+private final class FrameOutput: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
     let queue = DispatchQueue(label: "screenvibe.magnifier")
     var onFrame: ((IOSurface) -> Void)?   // called on the main thread
+    var onStopped: (() -> Void)?
     private var latest: CVPixelBuffer?
     private let lock = NSLock()
+    private var counts: [String: Int] = [:]
+    private var events: [String] = []
+
+    private func note(_ kind: String) { lock.lock(); counts[kind, default: 0] += 1; lock.unlock() }
+
+    func stream(_ stream: SCStream, didStopWithError error: Error) {
+        lock.lock(); events.append("stopped: \(error.localizedDescription)"); lock.unlock()
+        DispatchQueue.main.async { self.onStopped?() }
+    }
+
+    func writeLog() {
+        lock.lock(); defer { lock.unlock() }
+        let app = NSWorkspace.shared.frontmostApplication?.localizedName ?? "?"
+        let line = "\(Date()) front app: \(app); frames: \(counts.sorted { $0.key < $1.key }.map { "\($0.key) \($0.value)" }.joined(separator: ", "))"
+            + (events.isEmpty ? "" : "; " + events.joined(separator: "; ")) + "\n"
+        let url = Output.root.appendingPathComponent("magnifier.log")
+        if let h = try? FileHandle(forWritingTo: url) { h.seekToEndOfFile(); h.write(Data(line.utf8)); try? h.close() }
+        else { try? line.write(to: url, atomically: true, encoding: .utf8) }
+        counts = [:]
+        events = []
+    }
 
     func stream(_ stream: SCStream, didOutputSampleBuffer buffer: CMSampleBuffer, of type: SCStreamOutputType) {
         guard type == .screen, buffer.isValid,
               let info = (CMSampleBufferGetSampleAttachmentsArray(buffer, createIfNecessary: false) as? [[SCStreamFrameInfo: Any]])?.first,
-              let raw = info[.status] as? Int, SCFrameStatus(rawValue: raw) == .complete,
-              let pixels = buffer.imageBuffer, let surface = CVPixelBufferGetIOSurface(pixels)?.takeUnretainedValue()
-        else { return }
+              let raw = info[.status] as? Int, let status = SCFrameStatus(rawValue: raw) else { note("unreadable"); return }
+        guard status == .complete else {
+            note(status == .idle ? "idle" : status == .blank ? "blank" : status == .suspended ? "suspended"
+                 : status == .started ? "started" : status == .stopped ? "stopped" : "other")
+            return
+        }
+        guard let pixels = buffer.imageBuffer, let surface = CVPixelBufferGetIOSurface(pixels)?.takeUnretainedValue()
+        else { note("no picture"); return }
+        note("complete")
         lock.lock(); latest = pixels; lock.unlock()
         let s = surface as IOSurface
         let hand = onFrame
