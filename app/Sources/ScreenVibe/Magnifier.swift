@@ -207,8 +207,9 @@ final class Magnifier: NSObject {
     private func showText() {
         guard let screen = lens.screen, let (rect, _) = source() else { return }
         Task { @MainActor in
-            guard let text = await TextGrab.block(around: rect, on: screen) else { NSSound.beep(); return }
-            TextPanel.show(text, on: screen)
+            let areas = await TextGrab.areas(around: rect, on: screen)
+            guard !areas.isEmpty else { NSSound.beep(); return }
+            TextPanel.show(areas, on: screen)
         }
     }
 

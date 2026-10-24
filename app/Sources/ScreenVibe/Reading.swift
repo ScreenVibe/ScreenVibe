@@ -2,15 +2,15 @@ import AppKit
 import AVFoundation
 import ScreenCaptureKit
 
-/// The magnifier's Text button: the whole block of text the box sits on, read off the screen, even the parts
-/// outside the box.
+/// The magnifier's Text button: the text the box sits on, read off the screen, even the parts outside the box,
+/// one area at a time. The area most of the box shows comes first; others the box only touches follow.
 enum TextGrab {
     /// `source`: the part of the screen the box shows, in the display's points from its top-left corner.
     @MainActor
-    static func block(around source: CGRect, on screen: NSScreen) async -> String? {
+    static func areas(around source: CGRect, on screen: NSScreen) async -> [String] {
         guard let id = (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value,
               let content = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true),
-              let display = content.displays.first(where: { $0.displayID == id }) else { return nil }
+              let display = content.displays.first(where: { $0.displayID == id }) else { return [] }
         let me = content.applications.filter { $0.processID == ProcessInfo.processInfo.processIdentifier }
         let scale = screen.backingScaleFactor
         let config = SCStreamConfiguration()
@@ -19,35 +19,74 @@ enum TextGrab {
         config.showsCursor = false
         let filter = SCContentFilter(display: display, excludingApplications: me, exceptingWindows: [])
         guard let image = try? await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
-        else { return nil }
-        let whole = CGRect(origin: .zero, size: screen.frame.size)
-        let seen = await Task.detached { Output.read(image, crop: whole, scale: scale) }.value
-        return text(of: grow(seen, from: source))
+        else { return [] }
+        return await Task.detached { areas(in: image, scale: scale, around: source) }.value
     }
 
-    /// Starts from the lines in the box, then takes every line that sits just above or below one already taken
-    /// and overlaps it sideways: a paragraph, or a column of them, but not the text beside it.
-    static func grow(_ seen: [Seen], from source: CGRect) -> [Seen] {
-        var taken = Set(seen.indices.filter { seen[$0].rect.intersects(source) })
-        guard !taken.isEmpty else { return [] }
-        var changed = true
-        while changed {
-            changed = false
-            for i in seen.indices where !taken.contains(i) {
-                let r = seen[i].rect
-                let near = taken.contains { j in
-                    let t = seen[j].rect
-                    let h = max(r.height, t.height)
-                    let gap = max(r.minY - t.maxY, t.minY - r.maxY)
-                    let overlap = min(r.maxX, t.maxX) - max(r.minX, t.minX)
-                    let similar = r.height < t.height * 2.2 && t.height < r.height * 2.2
-                    let sameLine = abs(r.midY - t.midY) < h / 2 && max(r.minX - t.maxX, t.minX - r.maxX) < h * 1.5
-                    return similar && (sameLine || gap < h * 1.6 && overlap > min(r.width, t.width) * 0.2)
-                }
-                if near { taken.insert(i); changed = true }
+    static func areas(in image: CGImage, scale: CGFloat, around source: CGRect) -> [String] {
+        let whole = CGRect(x: 0, y: 0, width: CGFloat(image.width) / scale, height: CGFloat(image.height) / scale)
+        let seen = Output.read(image, crop: whole, scale: scale)
+        return pick(groups(seen), around: source).compactMap { reread($0, in: image, scale: scale) }
+    }
+
+    /// Lines that belong together: one just above or below another, overlapping it sideways, at a similar size.
+    /// Two pieces on the same line stay apart: the screen reader already joins the words of one line.
+    static func groups(_ seen: [Seen]) -> [[Seen]] {
+        var group = Array(seen.indices)
+        func root(_ i: Int) -> Int { group[i] == i ? i : root(group[i]) }
+        for i in seen.indices {
+            for j in seen.indices where j > i {
+                let a = seen[i].rect, b = seen[j].rect
+                let h = max(a.height, b.height)
+                let gap = max(a.minY - b.maxY, b.minY - a.maxY)
+                let overlap = min(a.maxX, b.maxX) - max(a.minX, b.minX)
+                let similar = a.height < b.height * 2.2 && b.height < a.height * 2.2
+                // A heading may sit a little further above its text.
+                let upper = a.minY < b.minY ? a : b, lower = a.minY < b.minY ? b : a
+                let reach = upper.height > lower.height * 1.15 ? 2.2 : 1.5
+                if similar, gap < h * reach, overlap > min(a.width, b.width) * 0.3 { group[root(j)] = root(i) }
             }
         }
-        return taken.map { seen[$0] }
+        return Dictionary(grouping: seen.indices, by: root).values.map { $0.map { seen[$0] } }
+    }
+
+    /// The areas the box touches: the one it shows most of first, then the others, nearest first.
+    static func pick(_ groups: [[Seen]], around source: CGRect) -> [[Seen]] {
+        func shown(_ g: [Seen]) -> CGFloat {
+            g.reduce(0) { t, l in let r = l.rect.intersection(source); return t + (r.isNull ? 0 : r.width * r.height) }
+        }
+        let touched = groups.filter { shown($0) > 0 }
+        guard let main = touched.max(by: { shown($0) < shown($1) }) else { return [] }
+        let c = CGPoint(x: source.midX, y: source.midY)
+        func distance(_ g: [Seen]) -> CGFloat {
+            g.map { hypot($0.rect.midX - c.x, $0.rect.midY - c.y) }.min() ?? .infinity
+        }
+        let rest = touched.filter { $0.first?.rect != main.first?.rect }.sorted { distance($0) < distance($1) }
+        return [main] + rest
+    }
+
+    /// Reads an area again, enlarged, so small text comes out right.
+    static func reread(_ lines: [Seen], in image: CGImage, scale: CGFloat) -> String? {
+        let box = lines.map(\.rect).reduce(CGRect.null) { $0.union($1) }.insetBy(dx: -6, dy: -6)
+        let px = CGRect(x: box.minX * scale, y: box.minY * scale, width: box.width * scale, height: box.height * scale)
+            .integral.intersection(CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        let lineHeight = lines.map(\.rect.height).sorted()[lines.count / 2] * scale
+        let k = min(4, max(1, 48 / max(1, lineHeight)))
+        guard let piece = image.cropping(to: px) else { return text(of: lines) }
+        let w = Int(CGFloat(piece.width) * k), h = Int(CGFloat(piece.height) * k)
+        guard k > 1.2, let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
+                                         space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                         bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
+            return text(of: Output.read(piece, crop: CGRect(x: 0, y: 0, width: px.width, height: px.height), scale: 1))
+                ?? text(of: lines)
+        }
+        ctx.interpolationQuality = .high
+        ctx.draw(piece, in: CGRect(x: 0, y: 0, width: w, height: h))
+        guard let big = ctx.makeImage() else { return text(of: lines) }
+        let again = Output.read(big, crop: CGRect(x: 0, y: 0, width: w, height: h), scale: 1)
+        // Enlarging usually reads small text better, but not always: keep whichever reading is surer of itself.
+        func sure(_ l: [Seen]) -> Float { l.isEmpty ? 0 : l.reduce(0) { $0 + $1.confidence } / Float(l.count) }
+        return sure(again) > sure(lines) ? text(of: again) : text(of: lines)
     }
 
     /// Lines in reading order, joined into paragraphs. A wider gap than usual starts a new paragraph.
@@ -57,12 +96,13 @@ enum TextGrab {
             abs(a.rect.midY - b.rect.midY) > min(a.rect.height, b.rect.height) / 2 ? a.rect.midY < b.rect.midY : a.rect.minX < b.rect.minX
         }
         let usual = sorted.map(\.rect.height).sorted()[sorted.count / 2]
+        let widest = sorted.map(\.rect.width).max() ?? 0
         var out = ""
         var last: CGRect?
         for l in sorted {
             if let p = last {
                 if abs(l.rect.midY - p.midY) < usual / 2 { out += " " }
-                else if l.rect.minY - p.maxY > usual * 0.9 { out += "\n" }
+                else if l.rect.minY - p.maxY > usual * 0.65 || p.width < widest * 0.6 { out += "\n" }   // a gap, or a list
                 else if out.hasSuffix("-") { out.removeLast() }
                 else { out += " " }
             }
@@ -82,16 +122,19 @@ final class TextPanel: NSPanel, AVSpeechSynthesizerDelegate {
     private var speakTile: Tile!
     private let speech = AVSpeechSynthesizer()
     private var spokenRange: NSRange?
+    private var areas: [String] = []
 
     private var fontSize: CGFloat {
         get { UserDefaults.standard.object(forKey: "textPanel.size") as? CGFloat ?? 22 }
         set { UserDefaults.standard.set(newValue, forKey: "textPanel.size") }
     }
 
-    static func show(_ text: String, on screen: NSScreen) {
+    /// `areas`: the main area first, then the others the box touched, shown dimmer.
+    static func show(_ areas: [String], on screen: NSScreen) {
         let p = shared ?? TextPanel(screen: screen)
         shared = p
-        p.set(text)
+        p.areas = areas
+        p.set(areas.joined(separator: "\n"))
         p.orderFrontRegardless()
         p.makeKey()
     }
@@ -173,6 +216,19 @@ final class TextPanel: NSPanel, AVSpeechSynthesizerDelegate {
         textView.textStorage?.setAttributes([.font: NSFont.systemFont(ofSize: fontSize), .foregroundColor: NSColor.textColor,
                                              .paragraphStyle: p],
                                             range: NSRange(location: 0, length: (textView.string as NSString).length))
+        // The other areas, after the main one: dimmer, with more room before each.
+        var at = 0
+        for (i, a) in areas.enumerated() {
+            let len = (a as NSString).length
+            if i > 0, let ts = textView.textStorage, at + len <= ts.length {
+                let q = p.mutableCopy() as! NSMutableParagraphStyle
+                q.paragraphSpacingBefore = fontSize * 1.2
+                let first = (a as NSString).paragraphRange(for: NSRange(location: 0, length: 0))
+                ts.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: NSRange(location: at, length: len))
+                ts.addAttribute(.paragraphStyle, value: q, range: NSRange(location: at, length: min(len, first.length)))
+            }
+            at += len + 1
+        }
         sizeLabel.stringValue = "\(Int(fontSize)) pt"
         if let r = spokenRange { mark(r) }
     }

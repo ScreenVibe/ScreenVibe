@@ -24,8 +24,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
            let img = NSImage(contentsOfFile: CommandLine.arguments[i + 1])?.cgImage(forProposedRect: nil, context: nil, hints: nil) {
             // Checks the Text button on a saved picture: the text block around a box (pixels x y width height).
             let n = CommandLine.arguments[(i + 2)...(i + 5)].compactMap { Double($0) }
-            let seen = Output.read(img, crop: CGRect(x: 0, y: 0, width: img.width, height: img.height), scale: 1)
-            print(TextGrab.text(of: TextGrab.grow(seen, from: CGRect(x: n[0], y: n[1], width: n[2], height: n[3]))) ?? "Nothing found.")
+            let areas = TextGrab.areas(in: img, scale: 1, around: CGRect(x: n[0], y: n[1], width: n[2], height: n[3]))
+            if ProcessInfo.processInfo.environment["SCREENVIBE_LINES"] != nil {
+                for l in Output.read(img, crop: CGRect(x: 0, y: 0, width: img.width, height: img.height), scale: 1) {
+                    print(Int(l.rect.minX), Int(l.rect.minY), Int(l.rect.width), Int(l.rect.height), l.confidence, l.text.prefix(30))
+                }
+            }
+            print(areas.isEmpty ? "Nothing found." : areas.enumerated().map { "[\($0.offset + 1)] \($0.element)" }.joined(separator: "\n"))
             exit(0)
         }
         if let i = CommandLine.arguments.firstIndex(of: "--private"), i + 1 < CommandLine.arguments.count {
@@ -47,7 +52,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let i = args.firstIndex(of: "--demo"), i + 1 < args.count { demo(path: args[i + 1]) }
         if let i = args.firstIndex(of: "--show-text"), i + 2 < args.count, let text = try? String(contentsOfFile: args[i + 1]) {
             // Opens the text window with a file's text and pictures that window alone.
-            TextPanel.show(text, on: NSScreen.main!)
+            TextPanel.show(text.components(separatedBy: "\n\n"), on: NSScreen.main!)
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
                 if let w = NSApp.windows.first(where: { $0 is TextPanel }),
                    let img = CGWindowListCreateImage(.null, .optionIncludingWindow, CGWindowID(w.windowNumber), [.boundsIgnoreFraming]) {

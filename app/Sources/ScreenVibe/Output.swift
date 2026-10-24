@@ -102,7 +102,7 @@ enum Output {
             let whole = onScreen(r.boundingBox)
             return Seen(text: c.string, rect: whole, part: { range in
                 (try? c.boundingBox(for: range)).map { onScreen($0.boundingBox) } ?? whole
-            })
+            }, confidence: c.confidence)
         }
     }
 

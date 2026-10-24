@@ -5,6 +5,7 @@ struct Seen {
     let text: String
     let rect: CGRect
     let part: (Range<String.Index>) -> CGRect
+    var confidence: Float = 1
 }
 
 /// A spot on the picture that looks private. `isOn`: blurred; the Send window lets the user show it again.
