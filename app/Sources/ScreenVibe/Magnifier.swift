@@ -89,7 +89,9 @@ final class Magnifier: NSObject {
         zoomLabel.translatesAutoresizingMaskIntoConstraints = false
         zoomLabel.widthAnchor.constraint(equalToConstant: 36).isActive = true
         showZoom()
-        let row = NSStackView(views: [plus, minus, zoomLabel, speakTile])
+        let text = Tile(symbol: "text.alignleft", label: "Show the whole text on the side", large: false)
+        text.onClick = { [weak self] in self?.showText() }
+        let row = NSStackView(views: [plus, minus, zoomLabel, speakTile, text])
         row.spacing = 4
         row.edgeInsets = NSEdgeInsets(top: 5, left: 6, bottom: 5, right: 6)
         row.translatesAutoresizingMaskIntoConstraints = false
@@ -198,6 +200,16 @@ final class Magnifier: NSObject {
     private func updateSource() {
         guard let stream, let c = configuration() else { return }
         stream.updateConfiguration(c, completionHandler: nil)
+    }
+
+    // MARK: the whole text
+
+    private func showText() {
+        guard let screen = lens.screen, let (rect, _) = source() else { return }
+        Task { @MainActor in
+            guard let text = await TextGrab.block(around: rect, on: screen) else { NSSound.beep(); return }
+            TextPanel.show(text, on: screen)
+        }
     }
 
     // MARK: speaking

@@ -20,6 +20,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         Self.moveFromUandI()
         Self.deleteOldMarkups()
+        if let i = CommandLine.arguments.firstIndex(of: "--text-block"), i + 5 < CommandLine.arguments.count,
+           let img = NSImage(contentsOfFile: CommandLine.arguments[i + 1])?.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+            // Checks the Text button on a saved picture: the text block around a box (pixels x y width height).
+            let n = CommandLine.arguments[(i + 2)...(i + 5)].compactMap { Double($0) }
+            let seen = Output.read(img, crop: CGRect(x: 0, y: 0, width: img.width, height: img.height), scale: 1)
+            print(TextGrab.text(of: TextGrab.grow(seen, from: CGRect(x: n[0], y: n[1], width: n[2], height: n[3]))) ?? "Nothing found.")
+            exit(0)
+        }
         if let i = CommandLine.arguments.firstIndex(of: "--private"), i + 1 < CommandLine.arguments.count {
             checkPrivate(path: CommandLine.arguments[i + 1])
         }
@@ -37,6 +45,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         if let i = args.firstIndex(of: "--demo"), i + 1 < args.count { demo(path: args[i + 1]) }
+        if let i = args.firstIndex(of: "--show-text"), i + 2 < args.count, let text = try? String(contentsOfFile: args[i + 1]) {
+            // Opens the text window with a file's text and pictures that window alone.
+            TextPanel.show(text, on: NSScreen.main!)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                if let w = NSApp.windows.first(where: { $0 is TextPanel }),
+                   let img = CGWindowListCreateImage(.null, .optionIncludingWindow, CGWindowID(w.windowNumber), [.boundsIgnoreFraming]) {
+                    try? Output.png(img)?.write(to: URL(fileURLWithPath: args[i + 2]))
+                }
+                exit(0)
+            }
+        }
         if args.contains("--magnifier-test") {
             // Opens the magnifier, says how many live frames arrived in two seconds, and quits. No picture is kept.
             toggleMagnifier()
