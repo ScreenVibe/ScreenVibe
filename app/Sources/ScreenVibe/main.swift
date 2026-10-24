@@ -6,6 +6,7 @@ import ServiceManagement
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var magnifier: Magnifier?
+    private var picker: AreaPicker?
     private var overlay: OverlayController?
     private var starting = false
 
@@ -63,7 +64,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         if args.contains("--magnifier-test") {
             // Opens the magnifier, says how many live frames arrived in two seconds, and quits. No picture is kept.
-            toggleMagnifier()
+            let m = NSEvent.mouseLocation
+            openMagnifier(area: args.contains("--area") ? CGRect(x: m.x - 100, y: m.y - 40, width: 200, height: 80) : nil)
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
                 print("magnifier frames: \(self?.magnifier?.framesShown ?? -1)")
                 exit(0)
@@ -189,7 +191,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func toggleMagnifier() {
         if let m = magnifier { m.close(); return }
-        let m = Magnifier()
+        if let p = picker, p.isVisible { p.orderOut(nil); return }
+        // First drag an area to magnify, or click for the box that shows what's under it.
+        let p = AreaPicker { [weak self] area in self?.openMagnifier(area: area) }
+        picker = p
+        p.show()
+    }
+
+    func openMagnifier(area: CGRect?) {
+        let m = Magnifier(area: area)
         m.onClose = { [weak self] in self?.magnifier = nil }
         m.onDenied = { [weak self] in self?.askForPermission() }
         magnifier = m

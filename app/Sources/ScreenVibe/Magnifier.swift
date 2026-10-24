@@ -3,9 +3,11 @@ import AVFoundation
 import ScreenCaptureKit
 import Vision
 
-/// ⌘⇧7: a box that shows what's under it, magnified and live. Drag it to move, drag its corner to resize.
-/// The bar centered under it has + and − (zoom steps), the zoom, and Speak (reads the words in the box aloud).
-/// Esc closes it. It opens where the mouse is, at the size and zoom used last.
+/// ⌘⇧7, then drag an area: a box shows that area magnified and live, beside it, and the area stays usable.
+/// ⌘⇧7 and a click instead: a box that shows what's under it, opened where the mouse is, at the size and zoom
+/// used last. Drag the box to move it, drag its corner to resize it.
+/// The bar centered under it has + and − (zoom steps), the zoom, Speak (reads the words in the box aloud) and
+/// Text (the whole text on the side). Esc closes it.
 final class Magnifier: NSObject {
     static let steps: [CGFloat] = [1.5, 2, 3, 4, 6, 8]
 
@@ -23,18 +25,43 @@ final class Magnifier: NSObject {
     private let speech = AVSpeechSynthesizer()
     private var spoken: [(range: NSRange, box: CGRect)] = []   // each line's place in the spoken text and in the box
 
+    /// The drawn area, in the display's points from its top-left corner, and its screen. Nil: the box shows what's under it.
+    private let area: CGRect?
+    private let areaScreen: NSScreen?
+    private var outline: NSPanel?
+
+    /// Saved only for the box that shows what's under it; a drawn area starts at the zoom that fits it.
     private var zoom: CGFloat {
-        get { UserDefaults.standard.object(forKey: "magnifier.zoom") as? CGFloat ?? 2 }
-        set { UserDefaults.standard.set(newValue, forKey: "magnifier.zoom") }
+        didSet { if area == nil { UserDefaults.standard.set(zoom, forKey: "magnifier.zoom") } }
     }
 
-    override init() {
-        let saved = UserDefaults.standard.array(forKey: "magnifier.size") as? [Double]
-        let size = saved.map { CGSize(width: $0[0], height: $0[1]) } ?? CGSize(width: 480, height: 220)
-        let m = NSEvent.mouseLocation
-        lens = LensPanel(frame: CGRect(x: m.x - size.width / 2, y: m.y - size.height / 2, width: size.width, height: size.height))
+    /// `area`: a drawn area in screen coordinates (AppKit's), or nil for the box that shows what's under it.
+    init(area drawn: CGRect? = nil) {
+        if let drawn, let screen = NSScreen.screens.first(where: { $0.frame.intersects(drawn) }) {
+            let sf = screen.frame, v = screen.visibleFrame
+            area = CGRect(x: drawn.minX - sf.minX, y: sf.maxY - drawn.maxY, width: drawn.width, height: drawn.height)
+            areaScreen = screen
+            // As big as fits beside the area, up to 3×, never smaller than the area.
+            let room = CGSize(width: max(v.maxX - drawn.maxX, drawn.minX - v.minX, v.width * 0.5) - 24, height: v.height * 0.8)
+            zoom = max(1, min(3, room.width / drawn.width, room.height / drawn.height))
+            let size = CGSize(width: drawn.width * zoom, height: drawn.height * zoom)
+            var x = v.maxX - drawn.maxX - 16 >= size.width ? drawn.maxX + 16 : drawn.minX - 16 - size.width
+            x = min(max(x, v.minX), v.maxX - size.width)
+            let y = min(max(drawn.midY - size.height / 2, v.minY + 50), v.maxY - size.height)
+            lens = LensPanel(frame: CGRect(x: x, y: y, width: size.width, height: size.height))
+            lens.view.aspect = drawn.width / drawn.height
+        } else {
+            area = nil
+            areaScreen = nil
+            zoom = UserDefaults.standard.object(forKey: "magnifier.zoom") as? CGFloat ?? 2
+            let saved = UserDefaults.standard.array(forKey: "magnifier.size") as? [Double]
+            let size = saved.map { CGSize(width: $0[0], height: $0[1]) } ?? CGSize(width: 480, height: 220)
+            let m = NSEvent.mouseLocation
+            lens = LensPanel(frame: CGRect(x: m.x - size.width / 2, y: m.y - size.height / 2, width: size.width, height: size.height))
+        }
         bar = Palette(key: "magnifier")
         super.init()
+        if let drawn { outline = Self.outline(around: drawn) }
         speech.delegate = self
         lens.view.onMoved = { [weak self] in self?.followLens() }
         lens.view.onMoveEnded = { [weak self] in self?.saveAndRestartIfMoved() }
@@ -50,10 +77,28 @@ final class Magnifier: NSObject {
         lens.onEscape = { [weak self] in self?.close() }
         output.onFrame = { [weak self] surface in self?.lens.view.show(surface); self?.framesShown += 1 }
         buildBar()
-        clampToScreen()
+        if area == nil { clampToScreen() }
+    }
+
+    /// A dashed frame around the drawn area, so it's clear what the box shows. Clicks go through it.
+    private static func outline(around r: CGRect) -> NSPanel {
+        let p = NSPanel(contentRect: r.insetBy(dx: -4, dy: -4), styleMask: [.borderless, .nonactivatingPanel],
+                        backing: .buffered, defer: false)
+        p.level = .statusBar
+        p.backgroundColor = .clear
+        p.isOpaque = false
+        p.hasShadow = false
+        p.ignoresMouseEvents = true
+        p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        p.isReleasedWhenClosed = false
+        let v = DashedFrame(frame: CGRect(origin: .zero, size: p.frame.size))
+        v.autoresizingMask = [.width, .height]
+        p.contentView = v
+        return p
     }
 
     func show() {
+        outline?.orderFrontRegardless()
         lens.orderFrontRegardless()
         lens.makeKey()
         lens.addChildWindow(bar, ordered: .above)
@@ -70,6 +115,7 @@ final class Magnifier: NSObject {
         stream = nil
         lens.removeChildWindow(bar)
         bar.orderOut(nil)
+        outline?.orderOut(nil)
         lens.orderOut(nil)
         onClose?()
     }
@@ -114,14 +160,34 @@ final class Magnifier: NSObject {
 
     private func step(_ by: Int) {
         let steps = Self.steps
-        let i = steps.firstIndex { $0 >= zoom - 0.01 } ?? steps.count - 1
-        zoom = steps[max(0, min(steps.count - 1, i + by))]
+        let i = by > 0 ? steps.firstIndex { $0 > zoom + 0.01 } ?? steps.count - 1
+                       : steps.lastIndex { $0 < zoom - 0.01 } ?? 0
+        zoom = steps[i]
         showZoom()
+        // A drawn area keeps showing all of itself: the box grows or shrinks, keeping its top-left corner.
+        if let area, let v = lens.screen?.visibleFrame {
+            let k = min(zoom, v.width / area.width, (v.height - 60) / area.height)
+            zoom = max(1, k)
+            showZoom()
+            let f = lens.frame
+            let size = CGSize(width: area.width * zoom, height: area.height * zoom)
+            var n = CGRect(x: f.minX, y: f.maxY - size.height, width: size.width, height: size.height)
+            n.origin.x = min(max(n.minX, v.minX), v.maxX - n.width)
+            n.origin.y = min(max(n.minY, v.minY + 50), v.maxY - n.height)
+            lens.setFrame(n, display: true)
+            followLens()
+            return
+        }
         updateSource()
     }
 
     /// The bar sits centered under the box, or over it when the box is near the bottom of the screen.
     private func followLens() {
+        // Resizing the box of a drawn area changes the zoom, since it always shows all of the area.
+        if let area, abs(lens.frame.width / area.width - zoom) > 0.01 {
+            zoom = lens.frame.width / area.width
+            showZoom()
+        }
         let f = lens.frame, b = bar.frame.size
         var p = CGPoint(x: f.midX - b.width / 2, y: f.minY - b.height - 8)
         if let s = lens.screen, p.y < s.visibleFrame.minY { p.y = f.maxY + 8 }
@@ -138,6 +204,7 @@ final class Magnifier: NSObject {
     }
 
     private func saveAndRestartIfMoved() {
+        guard area == nil else { updateSource(); return }
         UserDefaults.standard.set([Double(lens.frame.width), Double(lens.frame.height)], forKey: "magnifier.size")
         if displayID(of: lens.screen) != streamDisplay { Task { await startStream() } }
         else { updateSource() }
@@ -151,6 +218,10 @@ final class Magnifier: NSObject {
 
     /// What the box magnifies, in the display's points from its top-left corner: the box's middle, 1/zoom its size.
     private func source() -> (rect: CGRect, pixels: CGSize)? {
+        if let area, let s = areaScreen {
+            let k = s.backingScaleFactor
+            return (area, CGSize(width: lens.frame.width * k, height: lens.frame.height * k))
+        }
         guard let s = lens.screen else { return nil }
         let f = lens.frame, sf = s.frame, z = zoom
         let size = CGSize(width: f.width / z, height: f.height / z)
@@ -180,7 +251,7 @@ final class Magnifier: NSObject {
         stream = nil
         do {
             let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
-            let id = displayID(of: lens.screen)
+            let id = displayID(of: areaScreen ?? lens.screen)
             guard let display = content.displays.first(where: { $0.displayID == id }) ?? content.displays.first,
                   let config = configuration() else { return }
             // The box itself is left out of the picture, so it shows what's under it.
@@ -205,7 +276,7 @@ final class Magnifier: NSObject {
     // MARK: the whole text
 
     private func showText() {
-        guard let screen = lens.screen, let (rect, _) = source() else { return }
+        guard let screen = areaScreen ?? lens.screen, let (rect, _) = source() else { return }
         Task { @MainActor in
             let areas = await TextGrab.areas(around: rect, on: screen)
             guard !areas.isEmpty else { NSSound.beep(); return }
@@ -382,6 +453,8 @@ private final class LensPanel: NSPanel {
 
 /// The magnified picture, its frame, the resize corner and the highlight on the word being spoken.
 private final class LensView: NSView {
+    /// Width over height to keep while resizing (a drawn area), or nil.
+    var aspect: CGFloat?
     var onMoved: (() -> Void)?
     var onMoveEnded: (() -> Void)?
     var onZoomWheel: ((_ up: Bool) -> Void)?
@@ -450,7 +523,7 @@ private final class LensView: NSView {
         if resizing {
             // The top-left corner stays; the bottom-right follows the mouse.
             let width = max(Self.minSize.width, f.width + dx)
-            let height = max(Self.minSize.height, f.height - dy)
+            let height = aspect.map { width / $0 } ?? max(Self.minSize.height, f.height - dy)
             f = CGRect(x: f.minX, y: f.maxY - height, width: width, height: height)
         } else {
             f.origin.x += dx
@@ -490,6 +563,94 @@ private final class LensMarks: NSView {
         p.move(to: CGPoint(x: bounds.maxX - 14, y: 5))
         p.line(to: CGPoint(x: bounds.maxX - 5, y: 5))
         p.line(to: CGPoint(x: bounds.maxX - 5, y: 14))
+        p.stroke()
+    }
+}
+
+private final class DashedFrame: NSView {
+    override func draw(_ dirtyRect: NSRect) {
+        let p = NSBezierPath(roundedRect: bounds.insetBy(dx: 1.5, dy: 1.5), xRadius: 4, yRadius: 4)
+        p.lineWidth = 2
+        p.setLineDash([6, 4], count: 2, phase: 0)
+        NSColor(hex: "#2A6EE8")!.setStroke()
+        p.stroke()
+    }
+}
+
+/// ⌘⇧7's first step: drag an area to magnify, or click to get the box that shows what's under it. Esc cancels.
+final class AreaPicker: NSPanel {
+    /// Called with the drawn area in screen coordinates, or nil after a click; not called after Esc.
+    private let done: (CGRect?) -> Void
+    private let view = PickerView()
+
+    init(done: @escaping (CGRect?) -> Void) {
+        self.done = done
+        let screen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) } ?? NSScreen.main!
+        super.init(contentRect: screen.frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        level = .screenSaver
+        backgroundColor = .clear
+        isOpaque = false
+        hasShadow = false
+        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        isReleasedWhenClosed = false
+        view.frame = CGRect(origin: .zero, size: screen.frame.size)
+        view.onDone = { [weak self] r in
+            guard let self else { return }
+            self.orderOut(nil)
+            self.done(r.map { CGRect(x: $0.minX + self.frame.minX, y: $0.minY + self.frame.minY, width: $0.width, height: $0.height) })
+        }
+        contentView = view
+    }
+
+    func show() {
+        orderFrontRegardless()
+        makeKey()
+        invalidateCursorRects(for: view)
+    }
+
+    override var canBecomeKey: Bool { true }
+    override func cancelOperation(_ sender: Any?) { orderOut(nil) }
+    override func keyDown(with event: NSEvent) {
+        if event.keyCode == 53 { orderOut(nil) } else { super.keyDown(with: event) }
+    }
+}
+
+private final class PickerView: NSView {
+    var onDone: ((CGRect?) -> Void)?
+    private var start: CGPoint?
+    private var current: CGPoint?
+
+    private var drawn: CGRect? {
+        guard let start, let current else { return nil }
+        return CGRect(x: min(start.x, current.x), y: min(start.y, current.y),
+                      width: abs(current.x - start.x), height: abs(current.y - start.y))
+    }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    override func resetCursorRects() { addCursorRect(bounds, cursor: .crosshair) }
+
+    override func mouseDown(with event: NSEvent) { start = convert(event.locationInWindow, from: nil); current = start }
+    override func mouseDragged(with event: NSEvent) { current = convert(event.locationInWindow, from: nil); needsDisplay = true }
+    override func mouseUp(with event: NSEvent) {
+        current = convert(event.locationInWindow, from: nil)
+        let r = drawn
+        start = nil
+        current = nil
+        needsDisplay = true
+        onDone?(r.flatMap { $0.width >= 12 && $0.height >= 8 ? $0 : nil })
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        // A light veil says "pick an area"; the area being drawn is clear, with a dashed frame.
+        NSColor.black.withAlphaComponent(0.12).setFill()
+        bounds.fill()
+        guard let r = drawn else { return }
+        NSColor.clear.setFill()
+        r.fill(using: .copy)
+        let p = NSBezierPath(rect: r.insetBy(dx: -1, dy: -1))
+        p.lineWidth = 2
+        p.setLineDash([6, 4], count: 2, phase: 0)
+        NSColor(hex: "#2A6EE8")!.setStroke()
         p.stroke()
     }
 }
