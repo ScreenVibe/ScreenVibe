@@ -5,6 +5,7 @@ import ServiceManagement
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
+    private var magnifier: Magnifier?
     private var overlay: OverlayController?
     private var starting = false
 
@@ -36,6 +37,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         if let i = args.firstIndex(of: "--demo"), i + 1 < args.count { demo(path: args[i + 1]) }
+        if args.contains("--magnifier-test") {
+            // Opens the magnifier, says how many live frames arrived in two seconds, and quits. No picture is kept.
+            toggleMagnifier()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+                print("magnifier frames: \(self?.magnifier?.framesShown ?? -1)")
+                exit(0)
+            }
+        }
     }
 
     /// Checks Blur private info on a saved picture: prints what it would hide, and writes <picture>-private.png.
@@ -128,18 +137,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// ⌘⇧6 starts a markup from anywhere.
+    /// ⌘⇧6 starts a markup from anywhere; ⌘⇧7 opens or closes the magnifier.
     private func registerHotKey() {
         var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
-        InstallEventHandler(GetApplicationEventTarget(), { _, _, _ in
-            DispatchQueue.main.async { (NSApp.delegate as? AppDelegate)?.start() }
+        InstallEventHandler(GetApplicationEventTarget(), { _, event, _ in
+            var id = EventHotKeyID()
+            GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID), nil,
+                              MemoryLayout<EventHotKeyID>.size, nil, &id)
+            DispatchQueue.main.async {
+                let app = NSApp.delegate as? AppDelegate
+                if id.id == 2 { app?.toggleMagnifier() } else { app?.start() }
+            }
             return noErr
         }, 1, &spec, nil, nil)
         var ref: EventHotKeyRef?
         let status = RegisterEventHotKey(UInt32(kVK_ANSI_6), UInt32(cmdKey | shiftKey), EventHotKeyID(signature: OSType(0x53564942), id: 1),
                                          GetApplicationEventTarget(), 0, &ref)
-        // Another app holds ⌘⇧6: say so in the icon's tooltip, since the menu still works.
-        if status != noErr { statusItem.button?.toolTip = "ScreenVibe: mark up the screen. ⌘⇧6 is taken by another app." }
+        var ref7: EventHotKeyRef?
+        let status7 = RegisterEventHotKey(UInt32(kVK_ANSI_7), UInt32(cmdKey | shiftKey), EventHotKeyID(signature: OSType(0x53564942), id: 2),
+                                          GetApplicationEventTarget(), 0, &ref7)
+        // Another app holds a key: say so in the icon's tooltip, since the menu still works.
+        let taken = [status != noErr ? "⌘⇧6" : nil, status7 != noErr ? "⌘⇧7" : nil].compactMap { $0 }
+        if !taken.isEmpty {
+            statusItem.button?.toolTip = "ScreenVibe: \(taken.joined(separator: " and ")) \(taken.count == 1 ? "is" : "are") taken by another app."
+        }
+    }
+
+    func toggleMagnifier() {
+        if let m = magnifier { m.close(); return }
+        let m = Magnifier()
+        m.onClose = { [weak self] in self?.magnifier = nil }
+        m.onDenied = { [weak self] in self?.askForPermission() }
+        magnifier = m
+        m.show()
     }
 
     @objc private func clicked() {
@@ -147,6 +177,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if e?.type == .rightMouseUp || e?.modifierFlags.contains(.control) == true {
             let m = NSMenu()
             m.addItem(ClosureMenuItem(title: "Mark up the screen  ⌘⇧6") { [weak self] in self?.start() })
+            m.addItem(ClosureMenuItem(title: "Magnifier  ⌘⇧7") { [weak self] in self?.toggleMagnifier() })
             m.addItem(ClosureMenuItem(title: "Edit tools…") { ToolEditorWindow.show() })
             m.addItem(ClosureMenuItem(title: "Open the markups folder") {
                 let dir = Output.root.appendingPathComponent("markups")
