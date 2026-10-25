@@ -26,9 +26,11 @@ final class Magnifier: NSObject {
     private var spoken: [(range: NSRange, box: CGRect)] = []   // each line's place in the spoken text and in the box
 
     /// The drawn area, in the display's points from its top-left corner, and its screen. Nil: the box shows what's under it.
-    private let area: CGRect?
+    private var area: CGRect?
     private let areaScreen: NSScreen?
-    private var outline: NSPanel?
+    private var outline: AreaFrame?
+    /// The zoom asked for with + and − or the corner; the box shows less when the area is too big for it at that zoom.
+    private var wanted: CGFloat = 1
 
     /// Saved only for the box that shows what's under it; a drawn area starts at the zoom that fits it.
     private var zoom: CGFloat {
@@ -61,7 +63,11 @@ final class Magnifier: NSObject {
         }
         bar = Palette(key: "magnifier")
         super.init()
-        if let drawn { outline = Self.outline(around: drawn) }
+        wanted = zoom
+        if let drawn {
+            outline = AreaFrame(around: drawn)
+            outline?.onChange = { [weak self] r in self?.moveArea(to: r) }
+        }
         speech.delegate = self
         lens.view.onMoved = { [weak self] in self?.followLens() }
         lens.view.onMoveEnded = { [weak self] in self?.saveAndRestartIfMoved() }
@@ -80,25 +86,8 @@ final class Magnifier: NSObject {
         if area == nil { clampToScreen() }
     }
 
-    /// A dashed frame around the drawn area, so it's clear what the box shows. Clicks go through it.
-    private static func outline(around r: CGRect) -> NSPanel {
-        let p = NSPanel(contentRect: r.insetBy(dx: -4, dy: -4), styleMask: [.borderless, .nonactivatingPanel],
-                        backing: .buffered, defer: false)
-        p.level = .statusBar
-        p.backgroundColor = .clear
-        p.isOpaque = false
-        p.hasShadow = false
-        p.ignoresMouseEvents = true
-        p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        p.isReleasedWhenClosed = false
-        let v = DashedFrame(frame: CGRect(origin: .zero, size: p.frame.size))
-        v.autoresizingMask = [.width, .height]
-        p.contentView = v
-        return p
-    }
-
     func show() {
-        outline?.orderFrontRegardless()
+        outline?.start()
         lens.orderFrontRegardless()
         lens.makeKey()
         lens.addChildWindow(bar, ordered: .above)
@@ -115,9 +104,32 @@ final class Magnifier: NSObject {
         stream = nil
         lens.removeChildWindow(bar)
         bar.orderOut(nil)
-        outline?.orderOut(nil)
+        outline?.stop()
         lens.orderOut(nil)
         onClose?()
+    }
+
+    /// For --magnifier-test --area --resize: what the frame's edge does at a few points, and the box after moving and
+    /// growing the area. Writes the frame's own window (nothing else on screen) to the scratch file it names.
+    func checkAreaFrame() -> String {
+        guard let o = outline, let start = Optional(o.area) else { return "no area" }
+        var out: [String] = []
+        let r = o.area
+        for (name, p) in [("corner", CGPoint(x: r.maxX + 3, y: r.maxY + 3)), ("right middle", CGPoint(x: r.maxX + 4, y: r.midY)),
+                          ("top edge", CGPoint(x: r.minX + 40, y: r.maxY + 5)), ("inside", CGPoint(x: r.midX, y: r.midY)),
+                          ("far out", CGPoint(x: r.maxX + 40, y: r.midY))] {
+            out.append("\(name): \(o.part(at: p).map { "x \($0.x) y \($0.y)" } ?? "app gets it")")
+        }
+        out.append("box before: \(Int(lens.frame.width))×\(Int(lens.frame.height)) at \(zoom)×")
+        moveArea(to: CGRect(x: start.minX + 30, y: start.minY - 20, width: start.width * 1.5, height: start.height))
+        out.append("box after 1.5× wider: \(Int(lens.frame.width))×\(Int(lens.frame.height)) at \(zoom)×, aspect \(lens.view.aspect ?? 0)")
+        if let img = CGWindowListCreateImage(.null, .optionIncludingWindow, CGWindowID(o.windowNumber), [.boundsIgnoreFraming]),
+           let png = Output.png(img) {
+            let path = NSTemporaryDirectory() + "areaframe.png"
+            try? png.write(to: URL(fileURLWithPath: path))
+            out.append("wrote \(path)")
+        }
+        return out.joined(separator: "\n")
     }
 
     // MARK: the bar
@@ -163,22 +175,32 @@ final class Magnifier: NSObject {
         let i = by > 0 ? steps.firstIndex { $0 > zoom + 0.01 } ?? steps.count - 1
                        : steps.lastIndex { $0 < zoom - 0.01 } ?? 0
         zoom = steps[i]
+        wanted = zoom
         showZoom()
-        // A drawn area keeps showing all of itself: the box grows or shrinks, keeping its top-left corner.
-        if let area, let v = lens.screen?.visibleFrame {
-            let k = min(zoom, v.width / area.width, (v.height - 60) / area.height)
-            zoom = max(1, k)
-            showZoom()
-            let f = lens.frame
-            let size = CGSize(width: area.width * zoom, height: area.height * zoom)
-            var n = CGRect(x: f.minX, y: f.maxY - size.height, width: size.width, height: size.height)
-            n.origin.x = min(max(n.minX, v.minX), v.maxX - n.width)
-            n.origin.y = min(max(n.minY, v.minY + 50), v.maxY - n.height)
-            lens.setFrame(n, display: true)
-            followLens()
-            return
-        }
-        updateSource()
+        if area != nil { fitBox() } else { updateSource() }
+    }
+
+    /// A drawn area keeps showing all of itself: the box grows or shrinks, keeping its top-left corner.
+    private func fitBox() {
+        guard let area, let v = (lens.screen ?? areaScreen)?.visibleFrame else { return }
+        zoom = max(1, min(wanted, v.width / area.width, (v.height - 60) / area.height))
+        showZoom()
+        let f = lens.frame
+        let size = CGSize(width: area.width * zoom, height: area.height * zoom)
+        var n = CGRect(x: f.minX, y: f.maxY - size.height, width: size.width, height: size.height)
+        n.origin.x = min(max(n.minX, v.minX), v.maxX - n.width)
+        n.origin.y = min(max(n.minY, v.minY + 50), v.maxY - n.height)
+        lens.setFrame(n, display: true)
+        followLens()
+    }
+
+    /// The area's frame was moved or resized (`drawn` in screen coordinates): show the new area at the same zoom.
+    private func moveArea(to drawn: CGRect) {
+        guard let s = areaScreen else { return }
+        let sf = s.frame
+        area = CGRect(x: drawn.minX - sf.minX, y: sf.maxY - drawn.maxY, width: drawn.width, height: drawn.height)
+        lens.view.aspect = drawn.width / drawn.height
+        fitBox()
     }
 
     /// The bar sits centered under the box, or over it when the box is near the bottom of the screen.
@@ -186,6 +208,7 @@ final class Magnifier: NSObject {
         // Resizing the box of a drawn area changes the zoom, since it always shows all of the area.
         if let area, abs(lens.frame.width / area.width - zoom) > 0.01 {
             zoom = lens.frame.width / area.width
+            wanted = zoom
             showZoom()
         }
         let f = lens.frame, b = bar.frame.size
@@ -567,13 +590,142 @@ private final class LensMarks: NSView {
     }
 }
 
-private final class DashedFrame: NSView {
+/// The dashed frame around a drawn area. Dragging its edge moves the area; its dots at the corners and the middle of
+/// each side resize it. Inside the frame, clicks reach the app as usual: the frame takes the mouse only near its edge.
+private final class AreaFrame: NSPanel {
+    static let band: CGFloat = 10                    // the grab band, outside the area
+    static let inside: CGFloat = 4                   // and this much inside it
+    static let minSize = CGSize(width: 40, height: 24)
+    var onChange: ((CGRect) -> Void)?
+    private(set) var area: CGRect
+    private var watch: Timer?
+    private var drag: (part: Part, start: CGPoint, area: CGRect)?
+
+    /// Which part of the frame: x and y say which side (-1 left or bottom, 1 right or top, 0 neither); both 0 = move.
+    struct Part: Equatable { var x = 0, y = 0 }
+
+    init(around r: CGRect) {
+        area = r
+        super.init(contentRect: r.insetBy(dx: -Self.band, dy: -Self.band), styleMask: [.borderless, .nonactivatingPanel],
+                   backing: .buffered, defer: false)
+        level = .statusBar
+        backgroundColor = .clear
+        isOpaque = false
+        hasShadow = false
+        ignoresMouseEvents = true
+        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        isReleasedWhenClosed = false
+        let v = AreaFrameView(frame: CGRect(origin: .zero, size: frame.size))
+        v.autoresizingMask = [.width, .height]
+        v.owner = self
+        contentView = v
+    }
+
+    func start() {
+        orderFrontRegardless()
+        // The frame takes the mouse only while it's over the edge, so the area underneath keeps working.
+        let t = Timer(timeInterval: 1.0 / 30, repeats: true) { [weak self] _ in self?.watchMouse() }
+        RunLoop.main.add(t, forMode: .common)
+        watch = t
+    }
+
+    func stop() {
+        watch?.invalidate()
+        orderOut(nil)
+    }
+
+    /// The part of the frame under a point in screen coordinates, or nil when it's not near the edge.
+    func part(at m: CGPoint) -> Part? {
+        let outer = area.insetBy(dx: -Self.band, dy: -Self.band), inner = area.insetBy(dx: Self.inside, dy: Self.inside)
+        guard outer.contains(m), !inner.contains(m) else { return nil }
+        let dot: CGFloat = 14
+        // Which edge the point is near: -1 the left (or bottom), 1 the right (or top), 0 neither.
+        let ex = abs(m.x - area.minX) < Self.band + 1 ? -1 : abs(m.x - area.maxX) < Self.band + 1 ? 1 : 0
+        let ey = abs(m.y - area.minY) < Self.band + 1 ? -1 : abs(m.y - area.maxY) < Self.band + 1 ? 1 : 0
+        let cornerX = abs(m.x - area.minX) < dot ? -1 : abs(m.x - area.maxX) < dot ? 1 : 0
+        let cornerY = abs(m.y - area.minY) < dot ? -1 : abs(m.y - area.maxY) < dot ? 1 : 0
+        // On a dot it resizes: a corner, or the middle of a side. Elsewhere on the edge it moves.
+        if cornerX != 0 && cornerY != 0 && (ex != 0 || ey != 0) { return Part(x: cornerX, y: cornerY) }
+        if ex != 0 && abs(m.y - area.midY) < dot { return Part(x: ex, y: 0) }
+        if ey != 0 && abs(m.x - area.midX) < dot { return Part(x: 0, y: ey) }
+        return Part()
+    }
+
+    private func cursor(for p: Part) -> NSCursor {
+        if p == Part() { return drag == nil ? .openHand : .closedHand }
+        if p.x == 0 { return .resizeUpDown }
+        if p.y == 0 { return .resizeLeftRight }
+        return .crosshair
+    }
+
+    private func watchMouse() {
+        if let drag { cursor(for: drag.part).set(); return }
+        let p = part(at: NSEvent.mouseLocation)
+        if ignoresMouseEvents != (p == nil) { ignoresMouseEvents = p == nil }
+        if let p { cursor(for: p).set() }
+    }
+
+    fileprivate func mouseDown() {
+        let m = NSEvent.mouseLocation
+        guard let p = part(at: m) else { return }
+        drag = (p, m, area)
+        cursor(for: p).set()
+    }
+
+    fileprivate func mouseDragged() {
+        guard let d = drag, let s = screen ?? NSScreen.screens.first(where: { $0.frame.intersects(area) }) else { return }
+        let m = NSEvent.mouseLocation, sf = s.frame
+        let dx = m.x - d.start.x, dy = m.y - d.start.y
+        var r = d.area
+        if d.part == Part() {
+            r.origin.x = min(max(r.minX + dx, sf.minX), sf.maxX - r.width)
+            r.origin.y = min(max(r.minY + dy, sf.minY), sf.maxY - r.height)
+        } else {
+            // The side being dragged follows the mouse; the opposite side stays.
+            var minX = r.minX, maxX = r.maxX, minY = r.minY, maxY = r.maxY
+            if d.part.x < 0 { minX = min(max(minX + dx, sf.minX), maxX - Self.minSize.width) }
+            if d.part.x > 0 { maxX = max(min(maxX + dx, sf.maxX), minX + Self.minSize.width) }
+            if d.part.y < 0 { minY = min(max(minY + dy, sf.minY), maxY - Self.minSize.height) }
+            if d.part.y > 0 { maxY = max(min(maxY + dy, sf.maxY), minY + Self.minSize.height) }
+            r = CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+        }
+        guard r != area else { return }
+        area = r
+        setFrame(r.insetBy(dx: -Self.band, dy: -Self.band), display: true)
+        onChange?(r)
+    }
+
+    fileprivate func mouseUp() { drag = nil }
+}
+
+private final class AreaFrameView: NSView {
+    weak var owner: AreaFrame?
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    override func mouseDown(with event: NSEvent) { owner?.mouseDown() }
+    override func mouseDragged(with event: NSEvent) { owner?.mouseDragged() }
+    override func mouseUp(with event: NSEvent) { owner?.mouseUp() }
+
     override func draw(_ dirtyRect: NSRect) {
-        let p = NSBezierPath(roundedRect: bounds.insetBy(dx: 1.5, dy: 1.5), xRadius: 4, yRadius: 4)
+        let blue = NSColor(hex: "#2A6EE8")!
+        let r = bounds.insetBy(dx: AreaFrame.band, dy: AreaFrame.band)
+        let p = NSBezierPath(roundedRect: r.insetBy(dx: -2.5, dy: -2.5), xRadius: 4, yRadius: 4)
         p.lineWidth = 2
         p.setLineDash([6, 4], count: 2, phase: 0)
-        NSColor(hex: "#2A6EE8")!.setStroke()
+        blue.setStroke()
         p.stroke()
+        // The dots that resize: at the corners and the middle of each side.
+        let e: CGFloat = 2.5
+        for x in [r.minX - e, r.midX, r.maxX + e] {
+            for y in [r.minY - e, r.midY, r.maxY + e] where !(x == r.midX && y == r.midY) {
+                let d = NSBezierPath(ovalIn: CGRect(x: x - 4, y: y - 4, width: 8, height: 8))
+                NSColor.white.setFill()
+                d.fill()
+                d.lineWidth = 1.5
+                blue.setStroke()
+                d.stroke()
+            }
+        }
     }
 }
 

@@ -67,6 +67,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let m = NSEvent.mouseLocation
             openMagnifier(area: args.contains("--area") ? CGRect(x: m.x - 100, y: m.y - 40, width: 200, height: 80) : nil)
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+                if args.contains("--resize") { print(self?.magnifier?.checkAreaFrame() ?? "") }
                 print("magnifier frames: \(self?.magnifier?.framesShown ?? -1)")
                 exit(0)
             }
