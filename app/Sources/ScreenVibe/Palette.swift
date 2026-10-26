@@ -7,7 +7,7 @@ final class Tile: NSView {
     var fillColor: NSColor?
     private let symbol: String
     private let label: String
-    private let tint: NSColor
+    var tint: NSColor { didSet { needsDisplay = true } }
     private let large: Bool
     private let wide: Bool
     private var hovering = false { didSet { needsDisplay = true } }

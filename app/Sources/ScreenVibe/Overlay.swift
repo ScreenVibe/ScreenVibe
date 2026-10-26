@@ -17,6 +17,7 @@ final class OverlayController {
     private var toolsObserver: Any?
     private var sendWindow: SendWindow?
     private(set) weak var swatches: Swatches?
+    private var toolTileList: [(tool: ToolDef, tile: Tile)] = []
 
     init(frozen: Frozen) {
         self.frozen = frozen
@@ -76,8 +77,20 @@ final class OverlayController {
 
     func refreshTools() { toolsPalette.rebuild() }
 
+    /// Each tool's symbol shows the color its next mark gets: the picked color, else the tool's own.
+    func refreshToolColors() {
+        for (t, tile) in toolTileList { tile.tint = Self.tint(canvas.nextColor ?? t.color) }
+    }
+
+    /// Lighter, so it reads on the dark palette; black and other dark colors become a gray.
+    private static func tint(_ c: NSColor) -> NSColor {
+        let b = c.usingColorSpace(.sRGB)?.brightnessComponent ?? 1
+        return c.blended(withFraction: b < 0.3 ? 0.55 : 0.35, of: .white)!
+    }
+
     private func toolTiles(large: Bool) -> [NSView] {
         var tiles: [NSView] = []
+        toolTileList = []
         let select = Tile(symbol: "cursorarrow", label: "Select", large: large)
         select.toolTip = "Select (V)"
         select.isOn = canvas.tool == nil && !canvas.cropping
@@ -89,8 +102,8 @@ final class OverlayController {
         crop.onClick = { [weak self] in self?.canvas.setCrop() }
         tiles.append(crop)
         for t in ToolStore.shared.tools {
-            let tile = Tile(symbol: t.symbol, label: t.name, tint: t.color.blended(withFraction: 0.35, of: .white)!,
-                            large: large)
+            let tile = Tile(symbol: t.symbol, label: t.name, tint: Self.tint(canvas.nextColor ?? t.color), large: large)
+            toolTileList.append((t, tile))
             tile.toolTip = t.shortcut.isEmpty ? t.name : "\(t.name) (\(t.shortcut.uppercased()))"
             tile.isOn = canvas.tool?.id == t.id
             tile.onClick = { [weak self] in self?.canvas.setTool(t) }
@@ -239,7 +252,10 @@ final class Canvas: NSView, NSTextFieldDelegate {
     private(set) var tool: ToolDef?
     private var selected: Int? { didSet { controller?.swatches?.needsDisplay = true } }
     /// The color for the next marks, picked with nothing selected. Lasts for this markup.
-    private var nextPaint: Swatch? { didSet { controller?.swatches?.needsDisplay = true } }
+    private var nextPaint: Swatch? {
+        didSet { controller?.swatches?.needsDisplay = true; controller?.refreshToolColors() }
+    }
+    var nextColor: NSColor? { nextPaint?.color }
     private var pixelSelection: CGRect?
     private var clip: (image: NSImage, source: CGRect)?
     private var undoStack: [(marks: [Mark], crop: CGRect?)] = []
@@ -378,6 +394,7 @@ final class Canvas: NSView, NSTextFieldDelegate {
         let env = ProcessInfo.processInfo.environment
         if let n = env["SCREENVIBE_DEMO_NOTE"], let i = marks.firstIndex(where: { $0.tool?.id == "wording" }) { marks[i].extra = n }
         if env["SCREENVIBE_DEMO_CROP"] != nil { setCrop() }
+        if let name = env["SCREENVIBE_DEMO_PICK"], let w = Swatch.all.first(where: { $0.name == name }) { selected = nil; pick(w) }
         if let typed = env["SCREENVIBE_DEMO_TYPED"], let t = tools.first(where: { $0.shape == .text }) {
             // Test only: a new note whose words are typed but not yet committed with Return.
             var m = Mark(kind: .tool(t))
