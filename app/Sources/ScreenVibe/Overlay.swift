@@ -201,6 +201,7 @@ final class OverlayController {
         let w = SendWindow(marks: marks, found: Output.recognize(seen, marks: marks), spots: Private.find(seen), origin: crop.origin,
                            picture: { Output.preview(frozen: frozen, crop: crop, marks: marks, hidden: $0) })
         w.onCancel = { [weak self] in self?.closeSendWindow() }
+        w.onQuit = { [weak self] in self?.closeSendWindow(); self?.close() }
         w.onSend = { [weak self] words, markNotes, note, session, spots in
             self?.send(to: session, words: words, markNotes: markNotes, note: note, seen: seen, spots: spots)
         }

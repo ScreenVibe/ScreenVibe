@@ -185,6 +185,8 @@ enum MarkDrawing {
             stroke(NSBezierPath(rect: m.rect), color: color, width: 2, dashed: true)
         case .tool(let t):
             switch t.shape {
+            case .box where t.id == "wording" && !m.text.isEmpty:
+                break   // just the new words, drawn by words(m)
             case .box, .oval:
                 let path = t.shape == .box ? NSBezierPath(rect: m.rect) : NSBezierPath(ovalIn: m.rect)
                 fill(path, rect: m.rect, color: color, fill: t.fill)
@@ -234,7 +236,9 @@ enum MarkDrawing {
 
     private static func drawWords(_ m: Mark, tool t: ToolDef) {
         guard !m.text.isEmpty else { return }
-        if t.placement == .inside {
+        if t.id == "wording" {
+            plainText(m.text, in: m.rect, color: m.color)
+        } else if t.placement == .inside {
             let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 14, weight: .medium),
                                                         .foregroundColor: m.color.isLight ? NSColor.black : m.color.blended(withFraction: 0.3, of: .black)!]
             let s = m.text as NSString
@@ -256,6 +260,28 @@ enum MarkDrawing {
         } else {
             bubble("“\(m.text)”", at: CGPoint(x: m.rect.minX, y: m.rect.maxY + 6), color: m.color, above: m.rect.minY - 6)
         }
+    }
+
+    /// Wording's new words, as plain text in the box: as big as the box's height allows, with a light halo to read on anything.
+    private static func plainText(_ text: String, in r: CGRect, color: NSColor) {
+        var size = min(48, max(11, r.height * 0.62))
+        var a: [NSAttributedString.Key: Any] = [:]
+        var h: CGFloat = 0
+        repeat {
+            a = [.font: NSFont.systemFont(ofSize: size, weight: .semibold), .foregroundColor: color]
+            h = ceil((text as NSString).boundingRect(with: CGSize(width: max(20, r.width), height: 10_000),
+                                                     options: [.usesLineFragmentOrigin], attributes: a).height)
+            size -= 1
+        } while h > max(r.height, 16) && size > 11
+        NSGraphicsContext.saveGraphicsState()
+        let halo = NSShadow()
+        halo.shadowBlurRadius = 3
+        halo.shadowOffset = .zero
+        halo.shadowColor = (color.isLight ? NSColor.black : .white).withAlphaComponent(0.9)
+        halo.set()
+        (text as NSString).draw(with: CGRect(x: r.minX, y: r.midY - h / 2, width: max(20, r.width), height: h + 2),
+                                options: [.usesLineFragmentOrigin], attributes: a)
+        NSGraphicsContext.restoreGraphicsState()
     }
 
     /// `above`: where a callout's bottom goes when there is no room under the mark.

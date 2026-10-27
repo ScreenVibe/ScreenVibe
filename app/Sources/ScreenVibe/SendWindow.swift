@@ -1,11 +1,12 @@
 import AppKit
 
 /// Opens on Send: the marked picture, every numbered request (editable), a note for the whole markup and the session.
-/// Return sends, Esc goes back to the markup.
+/// Return sends, Cancel goes back to the markup, Esc closes the markup.
 final class SendWindow: NSPanel, NSTextFieldDelegate {
     /// `spots`: nil when Blur private info is off.
     var onSend: ((_ words: [String], _ markNotes: [String?], _ note: String, _ session: SessionInfo, _ spots: [Spot]?) -> Void)?
     var onCancel: (() -> Void)?
+    var onQuit: (() -> Void)?
 
     private static let columnWidth: CGFloat = 480
     private var fields: [GrowingField] = []
@@ -62,10 +63,8 @@ final class SendWindow: NSPanel, NSTextFieldDelegate {
                 markNotes[i] = f
                 noteField = f
             }
-            let empty = m.tool?.id == "wording" && (i >= found.count || found[i].isEmpty)
             column.addArrangedSubview(row(number: i + 1, color: m.color, name: Output.name(of: m), field: field,
-                                          note: noteField,
-                                          warning: empty ? "No words were found under this box. Say in a note what it replaces." : nil))
+                                          note: noteField, warning: nil))
         }
         let noteLabel = NSTextField(labelWithString: "Note for the whole markup")
         noteLabel.font = .systemFont(ofSize: 13, weight: .semibold)
@@ -107,7 +106,6 @@ final class SendWindow: NSPanel, NSTextFieldDelegate {
         popup.target = self
         popup.action = #selector(pickedSession)
         let cancel = NSButton(title: "Cancel", target: self, action: #selector(cancelPressed))
-        cancel.keyEquivalent = "\u{1b}"
         sendButton.target = self
         sendButton.action = #selector(sendPressed)
         sendButton.keyEquivalent = "\r"
@@ -241,12 +239,15 @@ final class SendWindow: NSPanel, NSTextFieldDelegate {
 
     @objc private func cancelPressed() { onCancel?() }
 
+    override func cancelOperation(_ sender: Any?) { onQuit?() }
+
     func controlTextDidChange(_ obj: Notification) {
         (obj.object as? GrowingField)?.fit()
         validate()
     }
 
     func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+        if selector == #selector(NSResponder.cancelOperation(_:)) { onQuit?(); return true }
         guard selector == #selector(NSResponder.insertNewline(_:)), NSApp.currentEvent?.modifierFlags.contains(.shift) == true
         else { return false }
         textView.insertNewlineIgnoringFieldEditor(nil)
