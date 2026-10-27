@@ -137,25 +137,22 @@ enum Output {
         func box(_ r: CGRect) -> String { "\(pt(r.origin)) \(n(r.width))×\(n(r.height))" }
         var lines: [String] = []
         lines.append(briefed
-            ? "ScreenVibe markup (how to read it: \(Guide.url.path))."
-            : "ScreenVibe markup. Before acting, read the guide once: \(Guide.url.path). Later markups in this chat use the same format.")
+            ? "ScreenVibe markup (guide: \(Guide.url.path))."
+            : "ScreenVibe markup. Read the guide once first: \(Guide.url.path).")
         var c = frozen.context
         if hidden != nil {
             c.window = Private.scrub(c.window)
             c.url = c.url.map(Private.scrubURL)
             c.document = c.document.map(Private.scrub)
         }
-        if !c.app.isEmpty { lines.append("App: \(c.app)\(c.bundleID.isEmpty ? "" : " (\(c.bundleID))").") }
-        if !c.window.isEmpty { lines.append("Window: \(c.window)") }
-        if let u = c.url { lines.append("URL: \(u)") }
-        if let d = c.document { lines.append("Document: \(d)") }
+        // Where it was: the app, its window, the page or file, on one line; each part only when known and new.
+        var place = [c.app, c.window == c.app ? "" : c.window, c.url ?? "", c.document ?? ""].filter { !$0.isEmpty }
         if let w = window(under: crop, frozen: frozen), w.app != c.app {
             let title = hidden == nil ? w.title : Private.scrub(w.title)
-            lines.append("Under the picture: \(title.isEmpty ? w.app : "\(w.app) — \(title)").")
+            place.append("under the picture: \(title.isEmpty ? w.app : "\(w.app) — \(title)")")
         }
-        lines.append("Picture: \(n(crop.width))×\(n(crop.height)) points, saved at \(Int(frozen.scale.rounded()))×.")
-        lines.append("Marked: \(markedURL.path)")
-        lines.append("Clean: \(cleanURL.path)")
+        if !place.isEmpty { lines.append("In: " + place.joined(separator: " — ")) }
+        lines.append("Pictures (\(Int(frozen.scale.rounded()))×): \(markedURL.path), and \(cleanURL.lastPathComponent) beside it.")
         let note = note.trimmingCharacters(in: .whitespacesAndNewlines)
         if !note.isEmpty { lines.append("Note: \(note)") }
         lines.append("")

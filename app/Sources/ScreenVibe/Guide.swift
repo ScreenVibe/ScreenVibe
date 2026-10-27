@@ -17,10 +17,8 @@ enum Guide {
 
         ## What each markup holds
 
-        - **Marked picture**: the boxed area with the marks drawn on it. Each mark has a numbered circle.
-        - **Clean picture**: the same area with no marks, so you can see what is under them.
-        - **App, Window, URL, Document**: what was in front when the screen froze: the app, its window title, the web address when it is a browser, and the open file when the app reports one. Each appears only when ScreenVibe could tell.
-        - **Under the picture**: the app under the picture, when it is not the front app.
+        - **In**: what was in front when the screen froze, joined by dashes: the app, its window title, the web address when it is a browser, and the open file when the app reports one. Each appears only when ScreenVibe could tell. "under the picture" names the app under the picture, when it is not the front app.
+        - **Pictures**: marked.png is the boxed area with the marks drawn on it; each mark has a numbered circle. clean.png, in the same folder, is the same area with no marks, so you can see what is under them. The number in brackets is how many pixels make a point.
         - **Note**: the user's note about the whole markup, when there is one.
         - **Numbered lines**: one for each mark, matching the numbers in the marked picture.
 
@@ -30,7 +28,7 @@ enum Guide {
 
         - The tool's name comes first. It says what the user wants; each tool's meaning is under The tools below.
         - Words in quotes after the name are the user's answer to the tool's question, such as the new wording or a button's label.
-        - Positions are in points from the top-left corner of the pictures, written `x,y width×height`. The markup says how many pixels make a point ("saved at 2×").
+        - Positions are in points from the top-left corner of the pictures, written `x,y width×height`. The Pictures line says how many pixels make a point ("(2×)").
         - A color after the name, as in `4. Pen, green.`, is one the user picked for that mark. The tool's meaning stays the same; the note says what the color means, such as "green = keep".
         - `→` points to where a Move or Copy+move goes. When the size there differs from the area's size, the piece should take the new size.
         - `Note:` at the end of a line is the user's own note on that mark. It adds to what the tool means.
