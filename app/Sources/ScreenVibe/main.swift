@@ -7,6 +7,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var magnifier: Magnifier?
     private var picker: AreaPicker?
+    private var escRef: EventHotKeyRef?
     private var overlay: OverlayController?
     private var starting = false
 
@@ -173,7 +174,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                               MemoryLayout<EventHotKeyID>.size, nil, &id)
             DispatchQueue.main.async {
                 let app = NSApp.delegate as? AppDelegate
-                if id.id == 2 { app?.toggleMagnifier() } else { app?.start() }
+                if id.id == 3 { app?.closeMagnifier() } else if id.id == 2 { app?.toggleMagnifier() } else { app?.start() }
             }
             return noErr
         }, 1, &spec, nil, nil)
@@ -192,19 +193,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func toggleMagnifier() {
         if let m = magnifier { m.close(); return }
-        if let p = picker, p.isVisible { p.orderOut(nil); return }
+        if let p = picker, p.isVisible { p.orderOut(nil); holdEscape(false); return }
         // First drag an area to magnify, or click for the box that shows what's under it.
         let p = AreaPicker { [weak self] area in self?.openMagnifier(area: area) }
         picker = p
         p.show()
+        holdEscape(true)
+    }
+
+    /// Esc, from any app: closes the magnifier, or stops drawing its area.
+    func closeMagnifier() {
+        magnifier?.close()
+        picker?.orderOut(nil)
+        holdEscape(false)
+    }
+
+    /// While the magnifier is open, Esc belongs to it, even when another app is in front.
+    private func holdEscape(_ on: Bool) {
+        if on, escRef == nil {
+            RegisterEventHotKey(UInt32(kVK_Escape), 0, EventHotKeyID(signature: OSType(0x53564942), id: 3),
+                                GetApplicationEventTarget(), 0, &escRef)
+        } else if !on, let r = escRef {
+            UnregisterEventHotKey(r)
+            escRef = nil
+        }
     }
 
     func openMagnifier(area: CGRect?) {
         let m = Magnifier(area: area)
-        m.onClose = { [weak self] in self?.magnifier = nil }
+        m.onClose = { [weak self] in self?.magnifier = nil; self?.holdEscape(false) }
         m.onDenied = { [weak self] in self?.askForPermission() }
         magnifier = m
         m.show()
+        holdEscape(true)
     }
 
     @objc private func clicked() {
