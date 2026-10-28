@@ -77,9 +77,90 @@ final class OverlayController {
 
     func refreshTools() { toolsPalette.rebuild() }
 
-    /// Each tool's symbol shows the color its next mark gets: the picked color, else the tool's own.
+    /// Each Draw symbol shows the color its next mark gets: the picked color, else the tool's own.
     func refreshToolColors() {
-        for (t, tile) in toolTileList { tile.tint = Self.tint(canvas.nextColor ?? t.color) }
+        for (t, tile) in toolTileList { tile.tint = Self.tint(t.isDraw ? canvas.nextColor ?? t.color : t.color) }
+    }
+
+    /// The Draw tile's tool: the one in use, else the last one used.
+    private var currentDrawTool: ToolDef? {
+        let group = ToolStore.shared.drawTools
+        if let t = canvas.tool, t.isDraw { return t }
+        let saved = UserDefaults.standard.string(forKey: "drawTool")
+        return group.first { $0.id == saved } ?? group.first
+    }
+
+    private func toolTile(_ t: ToolDef, large: Bool) -> Tile {
+        let tile = Tile(symbol: t.symbol, label: t.name, tint: Self.tint(t.isDraw ? canvas.nextColor ?? t.color : t.color),
+                        large: large)
+        toolTileList.append((t, tile))
+        tile.toolTip = t.shortcut.isEmpty ? t.name : "\(t.name) (\(t.shortcut.uppercased()))"
+        tile.isOn = canvas.tool?.id == t.id
+        tile.onClick = { [weak self] in self?.canvas.setTool(t) }
+        return tile
+    }
+
+    private var flyout: NSPanel?
+    private var flyoutWatch: Any?
+
+    /// The Draw shapes in a row beside the Draw tile (under it when the palette is horizontal).
+    private func showDrawShapes(from anchor: Tile, large: Bool) {
+        closeFlyout()
+        guard let win = anchor.window else { return }
+        let tiles = ToolStore.shared.drawTools.map { t -> Tile in
+            let tile = toolTile(t, large: large)
+            tile.onClick = { [weak self] in self?.closeFlyout(); self?.canvas.setTool(t) }
+            return tile
+        }
+        let stack = NSStackView(views: tiles)
+        stack.orientation = toolsPalette.vertical ? .horizontal : .vertical
+        stack.spacing = large ? 3 : 1
+        let edge: CGFloat = large ? 6 : 4
+        stack.edgeInsets = NSEdgeInsets(top: edge, left: edge, bottom: edge, right: edge)
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        let bg = NSView()
+        bg.wantsLayer = true
+        bg.layer?.backgroundColor = NSColor(hex: "#262629")!.cgColor
+        bg.layer?.cornerRadius = large ? 12 : 9
+        bg.addSubview(stack)
+        NSLayoutConstraint.activate([stack.leadingAnchor.constraint(equalTo: bg.leadingAnchor),
+                                     stack.topAnchor.constraint(equalTo: bg.topAnchor)])
+        let size = stack.fittingSize
+        let p = NSPanel(contentRect: CGRect(origin: .zero, size: size), styleMask: [.borderless, .nonactivatingPanel],
+                        backing: .buffered, defer: false)
+        p.backgroundColor = .clear
+        p.isOpaque = false
+        p.hasShadow = true
+        p.contentView = bg
+        let r = win.convertToScreen(anchor.convert(anchor.bounds, to: nil)), pal = toolsPalette.frame
+        p.setFrameOrigin(toolsPalette.vertical ? CGPoint(x: pal.maxX + 6, y: r.midY - size.height / 2)
+                                               : CGPoint(x: r.midX - size.width / 2, y: pal.minY - 6 - size.height))
+        toolsPalette.addChildWindow(p, ordered: .above)
+        flyout = p
+        // Any click elsewhere, or a key, puts it away.
+        flyoutWatch = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .keyDown]) { [weak self] e in
+            if e.window !== self?.flyout { self?.closeFlyout() }
+            return e
+        }
+    }
+
+    /// For checking the look: opens the Draw shapes and writes a picture of only that row.
+    func dumpDrawShapes(to path: String) {
+        guard let tile = toolTileList.first(where: { $0.tile.hasMore })?.tile else { return }
+        showDrawShapes(from: tile, large: toolsPalette.large)
+        if let v = flyout?.contentView, let rep = v.bitmapImageRepForCachingDisplay(in: v.bounds) {
+            v.cacheDisplay(in: v.bounds, to: rep)
+            try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
+        }
+    }
+
+    private func closeFlyout() {
+        if let flyoutWatch { NSEvent.removeMonitor(flyoutWatch) }
+        flyoutWatch = nil
+        guard let f = flyout else { return }
+        toolsPalette.removeChildWindow(f)
+        f.orderOut(nil)
+        flyout = nil
     }
 
     /// Lighter, so it reads on the dark palette; black and other dark colors become a gray.
@@ -101,13 +182,21 @@ final class OverlayController {
         crop.isOn = canvas.cropping
         crop.onClick = { [weak self] in self?.canvas.setCrop() }
         tiles.append(crop)
+        var drawShown = false
         for t in ToolStore.shared.tools {
-            let tile = Tile(symbol: t.symbol, label: t.name, tint: Self.tint(canvas.nextColor ?? t.color), large: large)
-            toolTileList.append((t, tile))
-            tile.toolTip = t.shortcut.isEmpty ? t.name : "\(t.name) (\(t.shortcut.uppercased()))"
-            tile.isOn = canvas.tool?.id == t.id
-            tile.onClick = { [weak self] in self?.canvas.setTool(t) }
-            tiles.append(tile)
+            if t.isDraw {
+                // Rect, Oval, Line, Arrow and Pen share one tile, showing the one last used. Hold it to pick another.
+                guard !drawShown, let d = currentDrawTool else { continue }
+                drawShown = true
+                let tile = toolTile(d, large: large)
+                tile.isOn = canvas.tool?.isDraw == true
+                tile.hasMore = true
+                tile.toolTip = "Draw: \(d.name). Hold to pick Rect, Oval, Line, Arrow or Pen."
+                tile.onHold = { [weak self, weak tile] in if let tile { self?.showDrawShapes(from: tile, large: large) } }
+                tiles.append(tile)
+                continue
+            }
+            tiles.append(toolTile(t, large: large))
         }
         let edit = Tile(symbol: "slider.horizontal.3", label: "Edit tools", tint: NSColor.white.withAlphaComponent(0.7),
                         large: large)
@@ -339,14 +428,14 @@ final class Canvas: NSView, NSTextFieldDelegate {
 
     /// The color the palette shows as picked: the selected mark's, else the one for the next marks.
     var currentPaint: Swatch? {
-        if let s = selected, s < marks.count { return marks[s].paint }
+        if let s = selected, s < marks.count, marks[s].isDraw { return marks[s].paint }
         return nextPaint
     }
 
-    /// Recolors the selected mark, or with nothing selected, sets the color of the next marks. Picking it again goes back to the tool's color.
+    /// Recolors the selected Draw mark, or otherwise sets the color of the next Draw marks. Picking it again goes back to the tool's color.
     func pick(_ w: Swatch) {
         commitEditor()
-        if let s = selected, s < marks.count {
+        if let s = selected, s < marks.count, marks[s].isDraw {
             pushUndo()
             marks[s].paint = marks[s].paint == w ? nil : w
             controller?.swatches?.needsDisplay = true
@@ -369,6 +458,7 @@ final class Canvas: NSView, NSTextFieldDelegate {
         commitEditor()
         cropping = false
         tool = t
+        if let t, t.isDraw { UserDefaults.standard.set(t.id, forKey: "drawTool") }
         if t != nil { selected = nil }
         controller?.refreshTools()
         needsDisplay = true
@@ -390,6 +480,8 @@ final class Canvas: NSView, NSTextFieldDelegate {
         if let t = tool("oval") { var m = Mark(kind: .tool(t)); m.rect = CGRect(x: c.minX + 570, y: c.minY + 120, width: 120, height: 70); m.paint = paints["yellow"]; marks.append(m) }
         if let t = tool("line") { var m = Mark(kind: .tool(t)); m.start = CGPoint(x: c.minX + 420, y: c.minY + 230); m.end = CGPoint(x: c.minX + 560, y: c.minY + 290); m.paint = paints["cyan"]; marks.append(m) }
         if let t = tool("arrow") { var m = Mark(kind: .tool(t)); m.start = CGPoint(x: c.minX + 590, y: c.minY + 300); m.end = CGPoint(x: c.minX + 690, y: c.minY + 220); m.paint = paints["white"]; marks.append(m) }
+        if let t = tool("popup") { var m = Mark(kind: .tool(t)); m.rect = CGRect(x: c.maxX - 260, y: c.maxY - 170, width: 170, height: 32); m.text = "Team color\nAlt color\nOther"; marks.append(m) }
+        if let t = tool("dots") { var m = Mark(kind: .tool(t)); m.rect = CGRect(x: c.maxX - 60, y: c.maxY - 170, width: 34, height: 34); m.text = "Rename\nDuplicate\nDelete"; marks.append(m) }
         controller?.placePalettes()
         needsDisplay = true
         let env = ProcessInfo.processInfo.environment
@@ -544,9 +636,9 @@ final class Canvas: NSView, NSTextFieldDelegate {
             return
         }
         var m = Mark(kind: .tool(t))
-        m.paint = nextPaint
+        m.paint = t.isDraw ? nextPaint : nil
         switch t.shape {
-        case .box, .oval, .boxArrow: m.rect = CGRect(origin: p, size: .zero)
+        case .box, .oval, .boxArrow, .popup, .dots: m.rect = CGRect(origin: p, size: .zero)
         case .arrow, .line: m.start = p; m.end = p
         case .pen: m.points = [p]
         case .text:

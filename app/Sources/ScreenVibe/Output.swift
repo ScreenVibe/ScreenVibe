@@ -159,7 +159,8 @@ enum Output {
         if marks.isEmpty { lines.append("No marks: the picture\(note.isEmpty ? "" : " and the note") is the whole message.") }
         for (i, m) in marks.enumerated() {
             // The tool's name says what it means (the guide has each one); only the user's own words follow it.
-            let said = m.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            let said = m.text.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+                .joined(separator: " / ")
             var line = "\(i + 1). \(name(of: m))\(m.paint.map { ", \($0.name)" } ?? "")" + (said.isEmpty ? "." : ": “\(said)”.")
             switch m.kind {
             case .pasted(_, let source):

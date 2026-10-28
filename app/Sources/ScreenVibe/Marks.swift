@@ -71,6 +71,8 @@ struct Mark {
     var isBoxArrow: Bool { tool?.shape == .boxArrow }
 
     /// Tools that ask for words when drawn (Wording, Button, Note…); the others carry only a note.
+    var isDraw: Bool { tool?.isDraw == true }
+
     var asksForWords: Bool { tool?.ask != nil || tool?.shape == .text }
 
     func hit(_ p: CGPoint) -> Bool {
@@ -173,7 +175,44 @@ enum MarkDrawing {
         switch t.shape {
         case .box, .oval: drawWords(m, tool: t)
         case .text: bubble(m.text, at: m.rect.origin, color: m.color)
+        case .popup, .dots: menuWords(m, tool: t)
         default: break
+        }
+    }
+
+    /// The ⋯ menu's circle: as wide as the drawn box's short side, in its middle.
+    static func circle(in r: CGRect) -> CGRect {
+        let d = min(r.width, r.height)
+        return CGRect(x: r.midX - d / 2, y: r.midY - d / 2, width: d, height: d)
+    }
+
+    /// A popup shows its first line, and a ⋯ menu its dots; under either, a menu lists every line.
+    private static func menuWords(_ m: Mark, tool t: ToolDef) {
+        let lines = m.text.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        let ink = m.color.isLight ? NSColor.black : m.color.blended(withFraction: 0.3, of: .black)!
+        let r = t.shape == .dots ? circle(in: m.rect) : m.rect
+        if t.shape == .popup, let first = lines.first {
+            let a: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 14, weight: .semibold), .foregroundColor: ink]
+            let h = (first as NSString).size(withAttributes: a).height
+            (first as NSString).draw(with: CGRect(x: r.minX + 10, y: r.midY - h / 2, width: max(10, r.width - 36), height: h),
+                                     options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine], attributes: a)
+        }
+        guard !lines.isEmpty else { return }
+        let a: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 13), .foregroundColor: NSColor.black]
+        let lineH: CGFloat = 20
+        let w = max(t.shape == .popup ? r.width : 110, (lines.map { ($0 as NSString).size(withAttributes: a).width }.max() ?? 0) + 26)
+        let card = CGRect(x: r.minX, y: r.maxY + 5, width: ceil(w), height: CGFloat(lines.count) * lineH + 8)
+        NSGraphicsContext.saveGraphicsState()
+        let sh = NSShadow()
+        sh.shadowBlurRadius = 8
+        sh.shadowOffset = NSSize(width: 0, height: -2)
+        sh.shadowColor = NSColor.black.withAlphaComponent(0.25)
+        sh.set()
+        NSColor.white.setFill()
+        NSBezierPath(roundedRect: card, xRadius: 7, yRadius: 7).fill()
+        NSGraphicsContext.restoreGraphicsState()
+        for (i, l) in lines.enumerated() {
+            (l as NSString).draw(at: CGPoint(x: card.minX + 13, y: card.minY + 4 + CGFloat(i) * lineH + 2), withAttributes: a)
         }
     }
 
@@ -187,6 +226,32 @@ enum MarkDrawing {
             switch t.shape {
             case .box where t.id == "wording" && !m.text.isEmpty:
                 break   // just the new words, drawn by words(m)
+            case .box where t.placement == .inside && t.ask != nil:
+                // The box is the button: slightly rounded, the words in it.
+                let path = NSBezierPath(roundedRect: m.rect, xRadius: 7, yRadius: 7)
+                fill(path, rect: m.rect, color: color, fill: t.fill)
+                stroke(path, color: color, width: t.lineWidth, dashed: t.dashed)
+            case .popup:
+                let path = NSBezierPath(roundedRect: m.rect, xRadius: 7, yRadius: 7)
+                fill(path, rect: m.rect, color: color, fill: t.fill)
+                stroke(path, color: color, width: t.lineWidth, dashed: t.dashed)
+                let c = CGPoint(x: m.rect.maxX - 16, y: m.rect.midY), v = NSBezierPath()
+                v.move(to: CGPoint(x: c.x - 5, y: c.y - 2.5))
+                v.line(to: CGPoint(x: c.x, y: c.y + 2.5))
+                v.line(to: CGPoint(x: c.x + 5, y: c.y - 2.5))
+                v.lineCapStyle = .round
+                v.lineJoinStyle = .round
+                stroke(v, color: color.blended(withFraction: 0.2, of: .black)!, width: 2, dashed: false)
+            case .dots:
+                let r = circle(in: m.rect), path = NSBezierPath(ovalIn: r)
+                fill(path, rect: r, color: color, fill: t.fill)
+                stroke(path, color: color, width: t.lineWidth, dashed: t.dashed)
+                let dot = max(2.5, r.width * 0.09)
+                color.blended(withFraction: 0.2, of: .black)!.setFill()
+                for k in -1...1 {
+                    let x = r.midX + CGFloat(k) * dot * 2.6
+                    NSBezierPath(ovalIn: CGRect(x: x - dot / 2, y: r.midY - dot / 2, width: dot, height: dot)).fill()
+                }
             case .box, .oval:
                 let path = t.shape == .box ? NSBezierPath(rect: m.rect) : NSBezierPath(ovalIn: m.rect)
                 fill(path, rect: m.rect, color: color, fill: t.fill)
@@ -249,12 +314,8 @@ enum MarkDrawing {
             let wrap = max(20, m.rect.width - 34)
             let sz = s.boundingRect(with: CGSize(width: wrap, height: 10_000),
                                     options: [.usesLineFragmentOrigin], attributes: a).size
-            let w = ceil(sz.width) + 26, h = ceil(sz.height) + 12
-            let b = CGRect(x: m.rect.midX - w / 2, y: m.rect.midY - h / 2, width: w, height: h)
-            let pill = NSBezierPath(roundedRect: b, xRadius: 6, yRadius: 6)
-            NSColor.white.setFill()
-            pill.fill()
-            stroke(pill, color: m.color.isLight ? .gray : m.color, width: 1.5, dashed: true)
+            let h = ceil(sz.height) + 12
+            let b = CGRect(x: m.rect.midX - wrap / 2, y: m.rect.midY - h / 2, width: wrap, height: h)
             s.draw(with: CGRect(x: b.midX - wrap / 2, y: b.minY + 6, width: wrap, height: ceil(sz.height) + 2),
                    options: [.usesLineFragmentOrigin], attributes: a)
         } else {

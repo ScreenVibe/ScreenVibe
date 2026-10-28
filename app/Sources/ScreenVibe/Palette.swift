@@ -4,6 +4,11 @@ import AppKit
 final class Tile: NSView {
     var onClick: (() -> Void)?
     var isOn = false { didSet { needsDisplay = true } }
+    /// Shows a small corner triangle: holding the tile, or clicking the triangle, calls `onHold`.
+    var hasMore = false
+    var onHold: (() -> Void)?
+    private var holdTimer: Timer?
+    private var held = false
     var fillColor: NSColor?
     private let symbol: String
     private let label: String
@@ -40,9 +45,20 @@ final class Tile: NSView {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     override func mouseEntered(with event: NSEvent) { hovering = true }
     override func mouseExited(with event: NSEvent) { hovering = false }
-    override func mouseDown(with event: NSEvent) {}
+    override func mouseDown(with event: NSEvent) {
+        held = false
+        guard hasMore else { return }
+        holdTimer = Timer.scheduledTimer(withTimeInterval: 0.35, repeats: false) { [weak self] _ in
+            self?.held = true
+            self?.onHold?()
+        }
+    }
     override func mouseUp(with event: NSEvent) {
-        if bounds.contains(convert(event.locationInWindow, from: nil)) { onClick?() }
+        holdTimer?.invalidate()
+        guard !held else { return }
+        let p = convert(event.locationInWindow, from: nil)
+        guard bounds.contains(p) else { return }
+        if hasMore, p.x > bounds.maxX - 12, p.y < 12 { onHold?() } else { onClick?() }
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -56,6 +72,15 @@ final class Tile: NSView {
         } else if hovering {
             NSColor.white.withAlphaComponent(0.10).setFill()
             bg.fill()
+        }
+        if hasMore {
+            let t = NSBezierPath()
+            t.move(to: CGPoint(x: bounds.maxX - 4, y: 4))
+            t.line(to: CGPoint(x: bounds.maxX - 4, y: 10))
+            t.line(to: CGPoint(x: bounds.maxX - 10, y: 4))
+            t.close()
+            NSColor.white.withAlphaComponent(0.6).setFill()
+            t.fill()
         }
         let conf = NSImage.SymbolConfiguration(pointSize: large ? (wide ? 15 : 17) : 13, weight: .medium)
         let img = symbol.isEmpty ? nil : NSImage(systemSymbolName: symbol, accessibilityDescription: label)?

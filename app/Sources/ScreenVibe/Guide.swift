@@ -74,12 +74,14 @@ enum Guide {
         case .boxArrow: parts.append("a box with an arrow to a dashed box where it goes")
         case .pen: parts.append("a free drawing")
         case .text: parts.append("a note bubble")
+        case .popup: parts.append("a pop-up menu; the words are its choices, split by “ / ”, and the first is what it shows when closed")
+        case .dots: parts.append("a round button with three dots that opens a menu; the words are its items, split by “ / ”")
         }
         if t.dashed && t.shape != .boxArrow { parts.append("dashed") }
         if t.fill == .stripes { parts.append("striped") }
         if t.fill == .tint { parts.append("lightly filled") }
         parts.append("in \(t.colorHex)")
-        if t.ask != nil && t.placement == .inside { parts.append("with the words inside it") }
+        if t.ask != nil && t.placement == .inside && t.shape == .box { parts.append("with the words inside it") }
         return parts.joined(separator: ", ")
     }
 }

@@ -2,7 +2,7 @@ import AppKit
 
 /// The drawn form a tool makes.
 enum ToolShape: String, Codable, CaseIterable {
-    case box, oval, arrow, line, boxArrow, pen, text
+    case box, oval, arrow, line, boxArrow, pen, text, popup, dots
 
     /// Drawn from a start point to an end point.
     var isLine: Bool { self == .arrow || self == .line }
@@ -16,6 +16,8 @@ enum ToolShape: String, Codable, CaseIterable {
         case .boxArrow: return "Box + arrow"
         case .pen: return "Free pen"
         case .text: return "Text"
+        case .popup: return "Popup"
+        case .dots: return "⋯ menu"
         }
     }
 }
@@ -55,6 +57,10 @@ struct ToolDef: Codable, Identifiable, Equatable {
     var shortcut: String = ""
 
     var color: NSColor { NSColor(hex: colorHex) ?? .systemRed }
+
+    /// The plain drawing tools. They share one Draw tile on the palette, and only they take a picked color.
+    static let drawIDs = ["rect", "oval", "line", "arrow", "pen"]
+    var isDraw: Bool { Self.drawIDs.contains(id) }
 }
 
 final class ToolStore {
@@ -72,9 +78,32 @@ final class ToolStore {
     private init() {
         if let data = try? Data(contentsOf: url), let saved = try? JSONDecoder().decode([ToolDef].self, from: data), !saved.isEmpty {
             tools = saved
+            addNewBuiltIns()
         } else {
             tools = ToolStore.builtIns
         }
+    }
+
+    /// Built-in tools added after someone saved their tools: each is added once, after Button, and stays deleted if
+    /// they delete it.
+    private func addNewBuiltIns() {
+        let key = "toolsAdded"
+        var added = Set(UserDefaults.standard.stringArray(forKey: key) ?? [])
+        var changed = false
+        for id in ["popup", "dots"] where !added.contains(id) {
+            added.insert(id)
+            guard !tools.contains(where: { $0.id == id }), let t = Self.builtIns.first(where: { $0.id == id }) else { continue }
+            let after = tools.lastIndex { $0.id == "button" || $0.id == "popup" }.map { $0 + 1 } ?? tools.count
+            tools.insert(t, at: after)
+            changed = true
+        }
+        UserDefaults.standard.set(Array(added), forKey: key)
+        if changed { save() }
+    }
+
+    /// The Draw tools in the order the Draw row shows them: Rect, Oval, Line, Arrow, Pen.
+    var drawTools: [ToolDef] {
+        tools.filter(\.isDraw).sorted { ToolDef.drawIDs.firstIndex(of: $0.id)! < ToolDef.drawIDs.firstIndex(of: $1.id)! }
     }
 
     func replaceAll(_ newTools: [ToolDef]) {
@@ -98,6 +127,13 @@ final class ToolStore {
         ToolDef(id: "button", name: "Button", symbol: "plus.rectangle", shape: .box, colorHex: "#18A050",
                 dashed: true, fill: .tint, intent: "Add a button here, labeled", ask: "What is the button's label?",
                 placement: .inside, shortcut: "b"),
+        ToolDef(id: "popup", name: "Popup", symbol: "chevron.down.square", shape: .popup, colorHex: "#18A050",
+                dashed: true, fill: .tint, intent: "Add a pop-up menu here, with these choices",
+                ask: "What are the choices? Put one on each line. The first one is what it shows when closed.",
+                placement: .inside, shortcut: "u"),
+        ToolDef(id: "dots", name: "⋯ menu", symbol: "ellipsis.circle", shape: .dots, colorHex: "#18A050",
+                dashed: true, fill: .tint, intent: "Add a round ⋯ button here that opens a menu, with these items",
+                ask: "What is in the menu? Put one item on each line.", placement: .inside, shortcut: "d"),
         ToolDef(id: "move", name: "Move", symbol: "arrow.right.square", shape: .boxArrow, colorHex: "#EF8A00",
                 intent: "Move this to where the arrow points.", shortcut: "m"),
         ToolDef(id: "copymove", name: "Copy+move", symbol: "plus.square.on.square", shape: .boxArrow, colorHex: "#EF8A00",
