@@ -496,6 +496,17 @@ final class Canvas: NSView, NSTextFieldDelegate {
             openEditor(for: marks.count - 1, isNew: true)
             (editor?.field.currentEditor() as? NSTextView)?.insertText(typed, replacementRange: NSRange(location: 0, length: 0))
         }
+        if let f = env["SCREENVIBE_DEMO_FILL"] {
+            // Test only: select x,y,w,h of the screen and press Option-Delete.
+            let v = f.split(separator: ",").compactMap { Double($0) }.map { CGFloat($0) }
+            if v.count == 4, let w = window,
+               let e = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .option, timestamp: 0, windowNumber: w.windowNumber,
+                                        context: nil, characters: "\u{7f}", charactersIgnoringModifiers: "\u{7f}", isARepeat: false, keyCode: 51) {
+                pixelSelection = CGRect(x: v[0], y: v[1], width: v[2], height: v[3])
+                keyDown(with: e)
+                if case .filled(let c) = marks.last?.kind { print("filled \(c.hexString)") }
+            }
+        }
         if env["SCREENVIBE_DEMO_TARGET"] != nil, let i = marks.firstIndex(where: { $0.isBoxArrow }) {
             marks[i].targetSize = CGSize(width: marks[i].rect.width * 1.8, height: marks[i].rect.height * 2.2)
             selected = i
@@ -817,7 +828,8 @@ final class Canvas: NSView, NSTextFieldDelegate {
             else if selected != nil { selected = nil; needsDisplay = true }
             else { controller?.close() }
             return
-        case 51, 117: // Delete
+        case 51, 117: // Delete; Option-Delete fills the selected part of the screen with the color around it
+            if event.modifierFlags.contains(.option), pixelSelection != nil { fillSelection(); return }
             if let s = selected { pushUndo(); marks.remove(at: s); selected = nil; needsDisplay = true }
             return
         case 36, 76: // Return
@@ -891,6 +903,52 @@ final class Canvas: NSView, NSTextFieldDelegate {
         pixelSelection = nil
         if tool != nil { setTool(nil) }
         needsDisplay = true
+    }
+
+    private func fillSelection() {
+        guard let r = pixelSelection?.intersection(bounds), !r.isEmpty, let c = Self.colorAround(r, in: frozen) else { return }
+        var m = Mark(kind: .filled(c))
+        m.rect = r
+        pushUndo()
+        marks.append(m)
+        pixelSelection = nil
+        needsDisplay = true
+    }
+
+    /// The most common color in a thin ring just outside `r` (nearby shades counted together, then averaged).
+    static func colorAround(_ r: CGRect, in frozen: Frozen) -> NSColor? {
+        let s = frozen.scale, img = frozen.image
+        let ring = CGFloat(4)
+        let full = CGRect(x: 0, y: 0, width: img.width, height: img.height)
+        let outer = CGRect(x: (r.minX - ring) * s, y: (r.minY - ring) * s, width: (r.width + 2 * ring) * s,
+                           height: (r.height + 2 * ring) * s).integral.intersection(full)
+        let inner = CGRect(x: r.minX * s, y: r.minY * s, width: r.width * s, height: r.height * s).integral
+        guard !outer.isEmpty, let cg = img.cropping(to: outer) else { return nil }
+        let w = cg.width, h = cg.height
+        var px = [UInt8](repeating: 0, count: w * h * 4)
+        guard let ctx = CGContext(data: &px, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                                  space: CGColorSpaceCreateDeviceRGB(),
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
+        // The crop is in the image's top-down pixels; the context's rows come out top-down too.
+        var buckets: [Int: (n: Int, r: Int, g: Int, b: Int)] = [:]
+        let step = max(1, (w * h) / 200_000)
+        var i = 0
+        for y in 0..<h {
+            for x in 0..<w {
+                i += 1
+                if i % step != 0 { continue }
+                if inner.contains(CGPoint(x: outer.minX + CGFloat(x) + 0.5, y: outer.minY + CGFloat(y) + 0.5)) { continue }
+                let o = (y * w + x) * 4
+                let (R, G, B) = (Int(px[o]), Int(px[o + 1]), Int(px[o + 2]))
+                let key = (R >> 3) << 10 | (G >> 3) << 5 | (B >> 3)
+                let e = buckets[key] ?? (0, 0, 0, 0)
+                buckets[key] = (e.n + 1, e.r + R, e.g + G, e.b + B)
+            }
+        }
+        guard let top = buckets.values.max(by: { $0.n < $1.n }) else { return nil }
+        let n = CGFloat(top.n) * 255
+        return NSColor(srgbRed: CGFloat(top.r) / n, green: CGFloat(top.g) / n, blue: CGFloat(top.b) / n, alpha: 1)
     }
 
     private func flash(_ r: CGRect) {

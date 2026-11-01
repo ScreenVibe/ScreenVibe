@@ -128,7 +128,10 @@ enum Output {
 
     // MARK: the message
 
-    static func name(of m: Mark) -> String { m.tool?.name ?? "Pasted piece" }
+    static func name(of m: Mark) -> String {
+        if case .filled = m.kind { return "Erased" }
+        return m.tool?.name ?? "Pasted piece"
+    }
 
     static func describe(frozen: Frozen, crop: CGRect, marks: [Mark], words: [String], markedURL: URL, cleanURL: URL,
                          note: String, briefed: Bool, hidden: [Spot.Why]? = nil) -> String {
@@ -166,6 +169,8 @@ enum Output {
             case .pasted(_, let source):
                 line += " Area \(box(m.rect))."
                 if !source.isNull { line += " Copied from \(box(source))\(crop.contains(source) ? "" : ", outside the picture")." }
+            case .filled(let c):
+                line += " Area \(box(m.rect)), covered with the color around it (\(c.hexString))."
             case .tool(let t):
                 switch t.shape {
                 case .arrow: line += " Arrow \(pt(m.start)) → \(pt(m.end))."

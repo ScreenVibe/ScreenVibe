@@ -49,6 +49,7 @@ enum Guide {
         }
         s += """
         - **Pasted piece**: a part of the screen the user copied, sometimes from outside the box, and placed here. Put that content here.
+        - **Erased**: the user covered this area with the color around it. Remove what was there and close the gap.
 
         ## How to act
 

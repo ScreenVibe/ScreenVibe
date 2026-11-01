@@ -17,6 +17,7 @@ struct Mark {
     enum Kind {
         case tool(ToolDef)
         case pasted(NSImage, source: CGRect)
+        case filled(NSColor)              // Option-Delete: the selection covered with the color around it
     }
 
     var kind: Kind
@@ -39,6 +40,7 @@ struct Mark {
         switch kind {
         case .tool(let t): return t.color
         case .pasted: return NSColor(hex: "#7A4FE0")!
+        case .filled: return NSColor(hex: "#7A4FE0")!
         }
     }
 
@@ -222,6 +224,10 @@ enum MarkDrawing {
         case .pasted(let img, _):
             img.draw(in: m.rect, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
             stroke(NSBezierPath(rect: m.rect), color: color, width: 2, dashed: true)
+        case .filled(let c):
+            c.setFill()
+            m.rect.fill()
+            if selected { stroke(NSBezierPath(rect: m.rect), color: color, width: 1, dashed: true) }
         case .tool(let t):
             switch t.shape {
             case .box where t.id == "wording" && !m.text.isEmpty:
