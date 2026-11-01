@@ -75,7 +75,8 @@ enum Guide {
         case .boxArrow: parts.append("a box with an arrow to a dashed box where it goes")
         case .pen: parts.append("a free drawing")
         case .text: parts.append("a note bubble")
-        case .popup: parts.append("a pop-up menu; the words are its choices, split by “ / ”, and the first is what it shows when closed")
+        case .popup: parts.append("a pop-up menu, drawn open, with its title to its left; the title is in quotes after its name, the words are its choices, split by “ / ”, and the first is what it shows when closed")
+        case .checkbox: parts.append("a checkbox with its label; “on” or “off” says whether it starts checked")
         case .dots: parts.append("a round button with three dots that opens a menu; the words are its items, split by “ / ”")
         }
         if t.dashed && t.shape != .boxArrow { parts.append("dashed") }

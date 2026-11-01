@@ -60,7 +60,7 @@ A markup points Claude at pictures in `~/.screenvibe`, outside your project, so 
 
 - Click the **ScreenVibe** icon in the menu bar, or press ⌘⇧6. The screen freezes.
 - The whole screen starts as the picture. To send less, pick **Crop (K)** and drag a box, or drag its edges and corners. Hold Space and drag to move the box, with any tool.
-- Mark it with the tools: Remove, Wording, Button, Popup, ⋯ menu, Move, Copy+move, Note, Draw, or your own. Draw holds Rect, Oval, Line, Arrow and Pen: click it to draw with the shape it shows, or hold it to pick another. For Popup and ⋯ menu, type one choice per line.
+- Mark it with the tools: Remove, Wording, Button, Popup, ⋯ menu, Checkbox, Move, Copy+move, Note, Draw, or your own. Draw holds Rect, Oval, Line, Arrow and Pen: click it to draw with the shape it shows, or hold it to pick another. A Popup is drawn open: click its title or any choice to change it; Return goes to the next choice, and in the last one adds another. A Checkbox's label is edited the same way; click its square to show it checked. For the ⋯ menu, type one item per line.
 - Pick a color under the tools to color the next Draw marks, or the selected one. Click it again to go back to the tool's color. The message names the color, so your note can say what it means.
 - Every mark has a round note button at its top-right corner. Click it to add a note for that mark.
 - **Select (V)** moves marks. It also picks any part of the frozen screen, even outside the box: ⌘C copies it, ⌘V pastes it into the box, and Option-Delete covers it with the color around it, to show something should go.

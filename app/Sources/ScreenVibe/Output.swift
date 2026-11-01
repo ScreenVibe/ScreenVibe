@@ -164,7 +164,10 @@ enum Output {
             // The tool's name says what it means (the guide has each one); only the user's own words follow it.
             let said = m.text.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
                 .joined(separator: " / ")
-            var line = "\(i + 1). \(name(of: m))\(m.paint.map { ", \($0.name)" } ?? "")" + (said.isEmpty ? "." : ": “\(said)”.")
+            var what = name(of: m)
+            if m.tool?.shape == .popup, !m.label.isEmpty { what += " “\(m.label)”" }
+            if m.tool?.shape == .checkbox { what += m.checked ? ", on" : ", off" }
+            var line = "\(i + 1). \(what)\(m.paint.map { ", \($0.name)" } ?? "")" + (said.isEmpty ? "." : ": “\(said)”.")
             switch m.kind {
             case .pasted(_, let source):
                 line += " Area \(box(m.rect))."

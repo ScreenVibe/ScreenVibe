@@ -13,6 +13,11 @@ struct Swatch: Equatable {
                       Swatch(name: "gray", hex: "#8E8E93"), Swatch(name: "white", hex: "#FFFFFF")]
 }
 
+/// A word on a popup or checkbox that a click edits, or a checkbox's square.
+enum MarkPart: Equatable {
+    case label, item(Int), check
+}
+
 struct Mark {
     enum Kind {
         case tool(ToolDef)
@@ -27,6 +32,8 @@ struct Mark {
     var points: [CGPoint] = []        // pen
     var text: String = ""
     var extra = ""                    // the user's own note on this mark, from its note button
+    var label = ""                    // a popup's title, drawn left of it
+    var checked = false               // a checkbox drawn checked
     var targetSize: CGSize?           // where a box+arrow points, once sized on its own; else the source's size
     var paint: Swatch?                // a color picked from the palette, in place of the tool's
 
@@ -77,7 +84,11 @@ struct Mark {
 
     var asksForWords: Bool { tool?.ask != nil || tool?.shape == .text }
 
+    /// A popup's choices, one per line, empty ones included while they are being typed.
+    var items: [String] { text.isEmpty ? [] : text.components(separatedBy: "\n") }
+
     func hit(_ p: CGPoint) -> Bool {
+        if MarkDrawing.part(of: self, at: p) != nil { return true }
         if case .tool(let t) = kind, t.shape == .boxArrow, target.insetBy(dx: -4, dy: -4).contains(p) { return true }
         if case .tool(let t) = kind, t.shape.isLine {
             // Near the line itself, not anywhere in the box around a slanted one.
@@ -177,7 +188,9 @@ enum MarkDrawing {
         switch t.shape {
         case .box, .oval: drawWords(m, tool: t)
         case .text: bubble(m.text, at: m.rect.origin, color: m.color)
-        case .popup, .dots: menuWords(m, tool: t)
+        case .popup: popupWords(m)
+        case .dots: menuWords(m, tool: t)
+        case .checkbox: checkboxWords(m)
         default: break
         }
     }
@@ -188,7 +201,103 @@ enum MarkDrawing {
         return CGRect(x: r.midX - d / 2, y: r.midY - d / 2, width: d, height: d)
     }
 
-    /// A popup shows its first line, and a ⋯ menu its dots; under either, a menu lists every line.
+    static let labelFont = NSFont.systemFont(ofSize: 14, weight: .semibold)
+    static let itemFont = NSFont.systemFont(ofSize: 13)
+    static let itemHeight: CGFloat = 20
+
+    /// The words of a popup or checkbox that a click edits in place, and a checkbox's square, with where each is.
+    static func parts(_ m: Mark) -> [(part: MarkPart, rect: CGRect)] {
+        guard let t = m.tool else { return [] }
+        let r = m.rect
+        switch t.shape {
+        case .popup:
+            let w = max(50, (labelText(m) as NSString).size(withAttributes: [.font: labelFont]).width + 6)
+            var all: [(MarkPart, CGRect)] = [(.label, CGRect(x: r.minX - 8 - w, y: r.midY - 11, width: w, height: 22))]
+            let card = popupCard(m)
+            for i in m.items.indices {
+                all.append((.item(i), CGRect(x: card.minX + 11, y: card.minY + 4 + CGFloat(i) * itemHeight, width: card.width - 17,
+                                             height: itemHeight)))
+            }
+            if !m.items.isEmpty { all.append((.item(0), CGRect(x: r.minX + 6, y: r.minY, width: max(10, r.width - 32), height: r.height))) }
+            return all
+        case .checkbox:
+            let sq = checkSquare(m)
+            return [(.check, sq.insetBy(dx: -4, dy: -4)),
+                    (.label, CGRect(x: sq.maxX + 6, y: r.minY, width: max(10, r.maxX - sq.maxX - 10), height: r.height))]
+        default: return []
+        }
+    }
+
+    static func part(of m: Mark, at p: CGPoint) -> MarkPart? { parts(m).first { $0.rect.contains(p) }?.part }
+
+    /// A popup's title as drawn: “Color:”.
+    static func labelText(_ m: Mark) -> String {
+        let l = m.label.trimmingCharacters(in: .whitespaces)
+        return l.isEmpty || l.hasSuffix(":") ? l : l + ":"
+    }
+
+    /// The open list under a popup.
+    static func popupCard(_ m: Mark) -> CGRect {
+        let a: [NSAttributedString.Key: Any] = [.font: itemFont]
+        let w = max(m.rect.width, (m.items.map { ($0 as NSString).size(withAttributes: a).width }.max() ?? 0) + 26)
+        return CGRect(x: m.rect.minX, y: m.rect.maxY + 5, width: ceil(w), height: CGFloat(max(1, m.items.count)) * itemHeight + 8)
+    }
+
+    static func checkSquare(_ m: Mark) -> CGRect {
+        let d = min(16, max(10, m.rect.height - 10))
+        return CGRect(x: m.rect.minX + 10, y: m.rect.midY - d / 2, width: d, height: d)
+    }
+
+    private static func checkboxWords(_ m: Mark) {
+        let ink = m.color.isLight ? NSColor.black : m.color.blended(withFraction: 0.3, of: .black)!
+        let sq = checkSquare(m), box = NSBezierPath(roundedRect: sq, xRadius: 4, yRadius: 4)
+        (m.checked ? m.color : .white).setFill()
+        box.fill()
+        stroke(box, color: m.checked ? m.color : ink, width: 2, dashed: false)
+        if m.checked {
+            let v = NSBezierPath()
+            v.move(to: CGPoint(x: sq.minX + sq.width * 0.24, y: sq.midY))
+            v.line(to: CGPoint(x: sq.minX + sq.width * 0.43, y: sq.maxY - sq.height * 0.26))
+            v.line(to: CGPoint(x: sq.maxX - sq.width * 0.22, y: sq.minY + sq.height * 0.26))
+            v.lineCapStyle = .round
+            v.lineJoinStyle = .round
+            stroke(v, color: .white, width: 2, dashed: false)
+        }
+        let a: [NSAttributedString.Key: Any] = [.font: labelFont, .foregroundColor: ink]
+        let h = (m.text as NSString).size(withAttributes: a).height
+        (m.text as NSString).draw(with: CGRect(x: sq.maxX + 8, y: m.rect.midY - h / 2, width: max(10, m.rect.maxX - sq.maxX - 14), height: h),
+                                  options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine], attributes: a)
+    }
+
+    /// A popup is drawn open: its title to the left, its first choice in it, and every choice listed under it.
+    private static func popupWords(_ m: Mark) {
+        let ink = m.color.isLight ? NSColor.black : m.color.blended(withFraction: 0.3, of: .black)!
+        let r = m.rect, items = m.items
+        let la: [NSAttributedString.Key: Any] = [.font: labelFont, .foregroundColor: ink]
+        let title = labelText(m) as NSString, ts = title.size(withAttributes: la)
+        title.draw(at: CGPoint(x: r.minX - 8 - ts.width, y: r.midY - ts.height / 2), withAttributes: la)
+        if let first = items.first {
+            let h = (first as NSString).size(withAttributes: la).height
+            (first as NSString).draw(with: CGRect(x: r.minX + 10, y: r.midY - h / 2, width: max(10, r.width - 36), height: h),
+                                     options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine], attributes: la)
+        }
+        let card = popupCard(m)
+        NSGraphicsContext.saveGraphicsState()
+        let sh = NSShadow()
+        sh.shadowBlurRadius = 8
+        sh.shadowOffset = NSSize(width: 0, height: -2)
+        sh.shadowColor = NSColor.black.withAlphaComponent(0.25)
+        sh.set()
+        NSColor.white.setFill()
+        NSBezierPath(roundedRect: card, xRadius: 7, yRadius: 7).fill()
+        NSGraphicsContext.restoreGraphicsState()
+        let a: [NSAttributedString.Key: Any] = [.font: itemFont, .foregroundColor: NSColor.black]
+        for (i, l) in items.enumerated() {
+            (l as NSString).draw(at: CGPoint(x: card.minX + 13, y: card.minY + 4 + CGFloat(i) * itemHeight + 2), withAttributes: a)
+        }
+    }
+
+    /// A ⋯ menu shows its dots; under it, a menu lists every line.
     private static func menuWords(_ m: Mark, tool t: ToolDef) {
         let lines = m.text.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
         let ink = m.color.isLight ? NSColor.black : m.color.blended(withFraction: 0.3, of: .black)!
@@ -234,6 +343,10 @@ enum MarkDrawing {
                 break   // just the new words, drawn by words(m)
             case .box where t.placement == .inside && t.ask != nil:
                 // The box is the button: slightly rounded, the words in it.
+                let path = NSBezierPath(roundedRect: m.rect, xRadius: 7, yRadius: 7)
+                fill(path, rect: m.rect, color: color, fill: t.fill)
+                stroke(path, color: color, width: t.lineWidth, dashed: t.dashed)
+            case .checkbox:
                 let path = NSBezierPath(roundedRect: m.rect, xRadius: 7, yRadius: 7)
                 fill(path, rect: m.rect, color: color, fill: t.fill)
                 stroke(path, color: color, width: t.lineWidth, dashed: t.dashed)

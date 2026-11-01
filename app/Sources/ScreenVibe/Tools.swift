@@ -2,7 +2,7 @@ import AppKit
 
 /// The drawn form a tool makes.
 enum ToolShape: String, Codable, CaseIterable {
-    case box, oval, arrow, line, boxArrow, pen, text, popup, dots
+    case box, oval, arrow, line, boxArrow, pen, text, popup, dots, checkbox
 
     /// Drawn from a start point to an end point.
     var isLine: Bool { self == .arrow || self == .line }
@@ -18,6 +18,7 @@ enum ToolShape: String, Codable, CaseIterable {
         case .text: return "Text"
         case .popup: return "Popup"
         case .dots: return "⋯ menu"
+        case .checkbox: return "Checkbox"
         }
     }
 }
@@ -90,10 +91,10 @@ final class ToolStore {
         let key = "toolsAdded"
         var added = Set(UserDefaults.standard.stringArray(forKey: key) ?? [])
         var changed = false
-        for id in ["popup", "dots"] where !added.contains(id) {
+        for id in ["popup", "dots", "checkbox"] where !added.contains(id) {
             added.insert(id)
             guard !tools.contains(where: { $0.id == id }), let t = Self.builtIns.first(where: { $0.id == id }) else { continue }
-            let after = tools.lastIndex { $0.id == "button" || $0.id == "popup" }.map { $0 + 1 } ?? tools.count
+            let after = tools.lastIndex { ["button", "popup", "dots"].contains($0.id) }.map { $0 + 1 } ?? tools.count
             tools.insert(t, at: after)
             changed = true
         }
@@ -134,6 +135,9 @@ final class ToolStore {
         ToolDef(id: "dots", name: "⋯ menu", symbol: "ellipsis.circle", shape: .dots, colorHex: "#18A050",
                 dashed: true, fill: .tint, intent: "Add a round ⋯ button here that opens a menu, with these items",
                 ask: "What is in the menu? Put one item on each line.", placement: .inside, shortcut: "d"),
+        ToolDef(id: "checkbox", name: "Checkbox", symbol: "checkmark.square", shape: .checkbox, colorHex: "#18A050",
+                dashed: true, fill: .tint, intent: "Add a checkbox here, labeled", ask: "What is the checkbox's label?",
+                placement: .inside, shortcut: "h"),
         ToolDef(id: "move", name: "Move", symbol: "arrow.right.square", shape: .boxArrow, colorHex: "#EF8A00",
                 intent: "Move this to where the arrow points.", shortcut: "m"),
         ToolDef(id: "copymove", name: "Copy+move", symbol: "plus.square.on.square", shape: .boxArrow, colorHex: "#EF8A00",

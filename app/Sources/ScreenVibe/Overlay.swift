@@ -367,6 +367,10 @@ final class Canvas: NSView, NSTextFieldDelegate {
     private var drag: Drag = .none
     private var aiming: Int?              // a box+arrow mark waiting for the click where it goes
     private var editor: TextPrompt?
+    /// A word of a popup or checkbox being edited right on the mark.
+    private var inline: (field: NSTextField, index: Int, part: MarkPart)?
+    /// A click on a word inside a popup or checkbox: edited on mouse up, unless the mark was dragged.
+    private var pendingPart: (index: Int, part: MarkPart, at: CGPoint)?
     private(set) var cropping = false      // the Crop tool: the only way to resize the picture
     private var spaceDown = false          // space + drag moves the picture's box with any tool
 
@@ -414,6 +418,11 @@ final class Canvas: NSView, NSTextFieldDelegate {
             return
         }
         guard tool == nil else { NSCursor.crosshair.set(); return }
+        if let i = marks.indices.reversed().first(where: { MarkDrawing.part(of: marks[$0], at: p) != nil }),
+           let part = MarkDrawing.part(of: marks[i], at: p) {
+            (part == .check ? NSCursor.pointingHand : NSCursor.iBeam).set()
+            return
+        }
         if let s = selected, s < marks.count {
             let m = marks[s]
             if m.isBoxArrow, let k = m.target.corners.firstIndex(where: { near(p, $0) }) { Cursors.resize(handle: k).set(); return }
@@ -480,7 +489,9 @@ final class Canvas: NSView, NSTextFieldDelegate {
         if let t = tool("oval") { var m = Mark(kind: .tool(t)); m.rect = CGRect(x: c.minX + 570, y: c.minY + 120, width: 120, height: 70); m.paint = paints["yellow"]; marks.append(m) }
         if let t = tool("line") { var m = Mark(kind: .tool(t)); m.start = CGPoint(x: c.minX + 420, y: c.minY + 230); m.end = CGPoint(x: c.minX + 560, y: c.minY + 290); m.paint = paints["cyan"]; marks.append(m) }
         if let t = tool("arrow") { var m = Mark(kind: .tool(t)); m.start = CGPoint(x: c.minX + 590, y: c.minY + 300); m.end = CGPoint(x: c.minX + 690, y: c.minY + 220); m.paint = paints["white"]; marks.append(m) }
-        if let t = tool("popup") { var m = Mark(kind: .tool(t)); m.rect = CGRect(x: c.maxX - 260, y: c.maxY - 170, width: 170, height: 32); m.text = "Team color\nAlt color\nOther"; marks.append(m) }
+        if let t = tool("popup") { var m = Mark(kind: .tool(t)); m.rect = CGRect(x: c.maxX - 260, y: c.maxY - 170, width: 170, height: 32); m.text = "Team color\nAlt color\nOther"; m.label = "Color"; marks.append(m) }
+        if let t = tool("checkbox") { var m = Mark(kind: .tool(t)); m.rect = CGRect(x: c.minX + 30, y: c.maxY - 120, width: 190, height: 34); m.text = "Show grid"; marks.append(m)
+            m.rect = m.rect.offsetBy(dx: 0, dy: 50); m.text = "Snap to guides"; m.checked = true; marks.append(m) }
         if let t = tool("dots") { var m = Mark(kind: .tool(t)); m.rect = CGRect(x: c.maxX - 60, y: c.maxY - 170, width: 34, height: 34); m.text = "Rename\nDuplicate\nDelete"; marks.append(m) }
         controller?.placePalettes()
         needsDisplay = true
@@ -495,6 +506,16 @@ final class Canvas: NSView, NSTextFieldDelegate {
             marks.append(m)
             openEditor(for: marks.count - 1, isNew: true)
             (editor?.field.currentEditor() as? NSTextView)?.insertText(typed, replacementRange: NSRange(location: 0, length: 0))
+        }
+        if let typed = env["SCREENVIBE_DEMO_INLINE"], let i = marks.firstIndex(where: { $0.tool?.shape == .popup }) {
+            // Test only: edit the second choice, Return, type a new one, and leave it open.
+            editPart(i, .item(1))
+            let parts = typed.components(separatedBy: "|")
+            (inline?.field.currentEditor() as? NSTextView)?.insertText(parts[0], replacementRange: NSRange(location: NSNotFound, length: 0))
+            if parts.count > 1, let tv = inline?.field.currentEditor() as? NSTextView, let f = inline?.field {
+                _ = control(f, textView: tv, doCommandBy: #selector(NSResponder.insertNewline(_:)))
+                (inline?.field.currentEditor() as? NSTextView)?.insertText(parts[1], replacementRange: NSRange(location: NSNotFound, length: 0))
+            }
         }
         if let f = env["SCREENVIBE_DEMO_FILL"] {
             // Test only: select x,y,w,h of the screen and press Option-Delete.
@@ -614,7 +635,7 @@ final class Canvas: NSView, NSTextFieldDelegate {
 
     override func mouseDown(with event: NSEvent) {
         let p = point(event)
-        if editor != nil { commitEditor() }
+        if editor != nil || inline != nil { commitEditor() }
         if let i = aiming {
             marks[i].end = p
             aiming = nil
@@ -649,7 +670,7 @@ final class Canvas: NSView, NSTextFieldDelegate {
         var m = Mark(kind: .tool(t))
         m.paint = t.isDraw ? nextPaint : nil
         switch t.shape {
-        case .box, .oval, .boxArrow, .popup, .dots: m.rect = CGRect(origin: p, size: .zero)
+        case .box, .oval, .boxArrow, .popup, .dots, .checkbox: m.rect = CGRect(origin: p, size: .zero)
         case .arrow, .line: m.start = p; m.end = p
         case .pen: m.points = [p]
         case .text:
@@ -692,7 +713,17 @@ final class Canvas: NSView, NSTextFieldDelegate {
         if let i = marks.indices.reversed().first(where: { marks[$0].hit(p) }) {
             selected = i
             pixelSelection = nil
-            if clicks == 2, marks[i].tool?.ask != nil {
+            if let part = MarkDrawing.part(of: marks[i], at: p) {
+                if part == .check {
+                    pushUndo()
+                    marks[i].checked.toggle()
+                    needsDisplay = true
+                    return
+                }
+                if !marks[i].rect.contains(p) { editPart(i, part); return }  // the title or the open list: edit at once
+                pendingPart = (i, part, p)
+            }
+            if clicks == 2, marks[i].tool?.shape != .popup, marks[i].tool?.shape != .checkbox, marks[i].tool?.ask != nil {
                 openEditor(for: i, isNew: false)
             } else if marks[i].isBoxArrow, !marks[i].rect.insetBy(dx: -6, dy: -6).contains(p), marks[i].target.contains(p) {
                 pushUndo()
@@ -774,19 +805,27 @@ final class Canvas: NSView, NSTextFieldDelegate {
     override func mouseUp(with event: NSEvent) {
         let current = drag
         drag = .none
+        defer { pendingPart = nil }
         switch current {
         case .makingCrop:
             if let c = crop, c.width < 8 || c.height < 8 { undo() }
             controller?.placePalettes()
         case .movingCrop:
             break
-        case .drawing(let m, _):
+        case .moving:
+            if let pp = pendingPart, near(point(event), pp.at, 3) { editPart(pp.index, pp.part) }
+        case .drawing(var m, _):
             guard let t = m.tool else { break }
             let a = m.area
             if (t.shape == .pen && m.points.count < 2) || (t.shape != .pen && max(a.width, a.height) < 6) { break }
             pushUndo()
+            if t.shape == .popup { m.label = "Label"; m.text = "Item 1\nItem 2" }
+            if t.shape == .checkbox { m.text = "Label" }
             marks.append(m)
-            if t.shape == .boxArrow {
+            if t.shape == .popup || t.shape == .checkbox {
+                finishMark(marks.count - 1)
+                editPart(marks.count - 1, .label)
+            } else if t.shape == .boxArrow {
                 aiming = marks.count - 1
                 marks[marks.count - 1].end = point(event)
             } else {
@@ -1006,6 +1045,7 @@ final class Canvas: NSView, NSTextFieldDelegate {
     }
 
     func commitEditor(cancel: Bool = false) {
+        commitInline()
         guard let e = editor else { return }
         editor = nil
         let text = (e.field.currentEditor()?.string ?? e.field.stringValue).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1026,6 +1066,61 @@ final class Canvas: NSView, NSTextFieldDelegate {
         needsDisplay = true
     }
 
+    /// Edits one word of a popup or checkbox right where it is drawn.
+    private func editPart(_ i: Int, _ part: MarkPart) {
+        commitEditor()
+        guard i < marks.count else { return }
+        selected = i
+        var items = marks[i].items
+        if case .item(let k) = part, k >= items.count { items.append(""); marks[i].text = items.joined(separator: "\n") }
+        guard var r = MarkDrawing.parts(marks[i]).last(where: { $0.part == part })?.rect else { return }
+        if part == .label, marks[i].tool?.shape == .popup { r = CGRect(x: r.maxX - max(r.width, 110), y: r.minY, width: max(r.width, 110), height: r.height) }
+        let f = NSTextField()
+        f.font = part == .label ? MarkDrawing.labelFont : MarkDrawing.itemFont
+        f.isBordered = false
+        f.drawsBackground = true
+        f.backgroundColor = .white
+        f.textColor = .black
+        f.alignment = part == .label && marks[i].tool?.shape == .popup ? .right : .left
+        f.cell?.isScrollable = true
+        f.cell?.usesSingleLineMode = true
+        f.focusRingType = .exterior
+        switch part {
+        case .label: f.stringValue = marks[i].tool?.shape == .popup ? marks[i].label : marks[i].text
+        case .item(let k): f.stringValue = marks[i].items[k]
+        case .check: return
+        }
+        let h = ceil(f.font!.boundingRectForFont.height) + 2
+        f.frame = CGRect(x: r.minX, y: r.midY - h / 2, width: r.width, height: h)
+        f.delegate = self
+        pushUndo()
+        addSubview(f)
+        inline = (f, i, part)
+        window?.makeFirstResponder(f)
+        f.currentEditor()?.selectAll(nil)
+        needsDisplay = true
+    }
+
+    private func commitInline() {
+        guard let e = inline else { return }
+        inline = nil
+        let text = (e.field.currentEditor()?.string ?? e.field.stringValue).trimmingCharacters(in: .whitespaces)
+        e.field.removeFromSuperview()
+        window?.makeFirstResponder(self)
+        needsDisplay = true
+        guard e.index < marks.count else { return }
+        switch e.part {
+        case .label:
+            if marks[e.index].tool?.shape == .popup { marks[e.index].label = text } else { marks[e.index].text = text }
+        case .item(let k):
+            var items = marks[e.index].items
+            guard k < items.count else { return }
+            if text.isEmpty { items.remove(at: k) } else { items[k] = text }
+            marks[e.index].text = items.joined(separator: "\n")
+        case .check: break
+        }
+    }
+
     func controlTextDidChange(_ note: Notification) {
         guard let e = editor else { return }
         e.fit()
@@ -1033,6 +1128,23 @@ final class Canvas: NSView, NSTextFieldDelegate {
     }
 
     func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+        if let e = inline, control === e.field {
+            let next = [#selector(NSResponder.insertNewline(_:)), #selector(NSResponder.insertTab(_:))].contains(selector)
+            guard next || selector == #selector(NSResponder.cancelOperation(_:)) else { return false }
+            let typed = textView.string.trimmingCharacters(in: .whitespaces)
+            let i = e.index
+            commitInline()
+            guard next, i < marks.count, marks[i].tool?.shape == .popup else { return true }
+            // Return goes from the title to the first choice, then down the list; in the last one it adds another,
+            // and in an empty one it is done.
+            switch e.part {
+            case .label: editPart(i, .item(0))
+            case .item(let k) where !typed.isEmpty:
+                editPart(i, .item(k + 1))
+            default: break
+            }
+            return true
+        }
         if selector == #selector(NSResponder.insertNewline(_:)) {
             if NSApp.currentEvent?.modifierFlags.contains(.shift) == true { textView.insertNewlineIgnoringFieldEditor(nil) }
             else { commitEditor() }

@@ -173,6 +173,13 @@ private struct ToolPreview: NSViewRepresentable {
             case .text:
                 m.rect = CGRect(x: 40, y: 34, width: 0, height: 0)
                 m.text = "Sample note"
+            case .popup:
+                m.rect = CGRect(x: 90, y: 14, width: 150, height: 30)
+                m.label = "Label"
+                m.text = "Item 1\nItem 2"
+            case .checkbox:
+                m.rect = CGRect(x: 40, y: 30, width: 180, height: 34)
+                m.text = "Label"
             default: break
             }
             MarkDrawing.draw(m, number: 1, selected: false)
