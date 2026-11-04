@@ -52,6 +52,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         if let i = args.firstIndex(of: "--demo"), i + 1 < args.count { demo(path: args[i + 1]) }
+        if let i = args.firstIndex(of: "--designer-demo"), i + 1 < args.count { DesignerWindow.demo(dump: args[i + 1]) }
         if let i = args.firstIndex(of: "--show-text"), i + 2 < args.count, let text = try? String(contentsOfFile: args[i + 1]) {
             // Opens the text window with a file's text and pictures that window alone.
             TextPanel.show(text.components(separatedBy: "\n\n"), on: NSScreen.main!)
@@ -154,6 +155,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
         }
+        if ProcessInfo.processInfo.environment["SCREENVIBE_DEMO_SAVE"] != nil, let dump = ProcessInfo.processInfo.environment["SCREENVIBE_DUMP"] {
+            // Test only (with SCREENVIBE_DESIGN_DIR): save the sample markup, close it, open it again and picture it.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                let c = o.canvas
+                if let img = Output.preview(frozen: o.frozen, crop: c.outputArea, marks: c.marks) {
+                    MarkupFile.save(frozen: o.frozen, crop: c.outputArea, marks: c.marks, marked: img, how: "copied")
+                }
+                o.close()
+                guard let e = MarkupFile.list().first else { print("nothing saved"); exit(1) }
+                print("saved:", e.title, e.how)
+                self?.openSaved(e.url)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
+                    if let v = self?.overlay?.canvas, let rep = v.bitmapImageRepForCachingDisplay(in: v.bounds) {
+                        v.cacheDisplay(in: v.bounds, to: rep)
+                        try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: dump))
+                        print("marks:", v.marks.count)
+                    }
+                    exit(0)
+                }
+            }
+            return
+        }
         if let dump = ProcessInfo.processInfo.environment["SCREENVIBE_DUMP"] {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
                 let v = o.canvas
@@ -166,7 +189,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// ⌘⇧6 starts a markup from anywhere; ⌘⇧7 opens or closes the magnifier.
+    /// ⌘⇧6 starts a markup from anywhere; ⌘⇧7 opens or closes the magnifier; ⌘⌥6 opens the UI designer.
     private func registerHotKey() {
         var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
         InstallEventHandler(GetApplicationEventTarget(), { _, event, _ in
@@ -175,7 +198,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                               MemoryLayout<EventHotKeyID>.size, nil, &id)
             DispatchQueue.main.async {
                 let app = NSApp.delegate as? AppDelegate
-                if id.id == 3 { app?.closeMagnifier() } else if id.id == 2 { app?.toggleMagnifier() } else { app?.start() }
+                if id.id == 4 { DesignerWindow.show() } else if id.id == 3 { app?.closeMagnifier() } else if id.id == 2 { app?.toggleMagnifier() } else { app?.start() }
             }
             return noErr
         }, 1, &spec, nil, nil)
@@ -185,8 +208,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         var ref7: EventHotKeyRef?
         let status7 = RegisterEventHotKey(UInt32(kVK_ANSI_7), UInt32(cmdKey | shiftKey), EventHotKeyID(signature: OSType(0x53564942), id: 2),
                                           GetApplicationEventTarget(), 0, &ref7)
+        var ref6: EventHotKeyRef?
+        let status6 = RegisterEventHotKey(UInt32(kVK_ANSI_6), UInt32(cmdKey | optionKey), EventHotKeyID(signature: OSType(0x53564942), id: 4),
+                                          GetApplicationEventTarget(), 0, &ref6)
         // Another app holds a key: say so in the icon's tooltip, since the menu still works.
-        let taken = [status != noErr ? "⌘⇧6" : nil, status7 != noErr ? "⌘⇧7" : nil].compactMap { $0 }
+        let taken = [status != noErr ? "⌘⇧6" : nil, status7 != noErr ? "⌘⇧7" : nil, status6 != noErr ? "⌘⌥6" : nil].compactMap { $0 }
         if !taken.isEmpty {
             statusItem.button?.toolTip = "ScreenVibe: \(taken.joined(separator: " and ")) \(taken.count == 1 ? "is" : "are") taken by another app."
         }
@@ -236,8 +262,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             m.addItem(ClosureMenuItem(title: "Mark up the screen  ⌘⇧6") { [weak self] in self?.start() })
             m.addItem(ClosureMenuItem(title: "Magnifier  ⌘⇧7") { [weak self] in self?.toggleMagnifier() })
             m.addItem(ClosureMenuItem(title: "Edit tools…") { ToolEditorWindow.show() })
+            m.addItem(ClosureMenuItem(title: "UI designer  ⌘⌥6") { DesignerWindow.show() })
             m.addItem(ClosureMenuItem(title: "Open the markups folder") {
-                let dir = Output.root.appendingPathComponent("markups")
+                let dir = MarkupFile.folder
                 try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
                 NSWorkspace.shared.open(dir)
             })
@@ -263,6 +290,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             start()
         }
+    }
+
+    /// Opens a markup saved in ~/Documents/ScreenVibe/Markups, to change it and send it again.
+    func openSaved(_ dir: URL) {
+        guard overlay == nil, let screen = NSScreen.main, let saved = MarkupFile.load(dir, on: screen) else { return }
+        let o = OverlayController(frozen: saved.frozen)
+        o.onClose = { [weak self] in self?.overlay = nil }
+        overlay = o
+        o.show()
+        o.canvas.restore(crop: saved.crop, marks: saved.marks)
     }
 
     func start() {

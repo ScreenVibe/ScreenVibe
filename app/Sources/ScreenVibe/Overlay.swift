@@ -276,6 +276,7 @@ final class OverlayController {
         guard let out = Output.make(frozen: frozen, crop: canvas.outputArea, marks: canvas.marks, seen: seen,
                                     spots: Private.isOn ? Private.find(seen) : nil) else { return }
         Output.copyToPasteboard(out)
+        MarkupFile.save(frozen: frozen, crop: canvas.outputArea, marks: canvas.marks, marked: out.marked, how: "copied")
         close()
         Toast.show("Copied the markup and its words", on: frozen.screen)
     }
@@ -320,6 +321,7 @@ final class OverlayController {
         do {
             try Sessions.deliver(out, to: s)
             Sessions.lastId = s.sessionId
+            MarkupFile.save(frozen: frozen, crop: canvas.outputArea, marks: marks, marked: out.marked, how: "sent")
             close()
             Toast.show("Sent to \(s.label)", on: frozen.screen)
         } catch {
@@ -539,6 +541,17 @@ final class Canvas: NSView, NSTextFieldDelegate {
             openEditor(for: i, isNew: false)
             controlTextDidChange(Notification(name: NSControl.textDidChangeNotification))
         }
+    }
+
+    /// A saved markup, opened again: its box and its marks, ready to change.
+    func restore(crop c: CGRect, marks saved: [Mark]) {
+        crop = c
+        marks = saved
+        cropping = false
+        tool = nil
+        controller?.refreshTools()
+        controller?.placePalettes()
+        needsDisplay = true
     }
 
     func toolsChanged() {

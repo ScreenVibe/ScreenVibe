@@ -68,6 +68,8 @@ A markup points Claude at pictures in `~/.screenvibe`, outside your project, so 
 - **Blur private info**, in the Send window, is on unless you turn it off. Before sending, it covers what looks like login info (passwords, keys, tokens), bank numbers (cards, IBANs, account and routing numbers, Social Security numbers) and text written to give orders to an AI ("ignore previous instructions…"). The text Claude gets is cleaned too, web address included. Each covered spot has a tag saying why; click it to show it again. It works by rules, on your Mac, so it can miss things or cover too much: look before you send. Copy uses the same setting.
 - **Copy** puts the picture and the words on the clipboard. **Discard** (or Esc) closes.
 
+**UI designer:** press ⌘⌥6 (or choose UI designer in the menu) to draw a new UI from scratch on a grid page. Pick Window and choose Panel, Adobe panel, Modal or Plain from the row beside it, then drag. Add a Box, Button, Popup, Checkbox, Radio, Field, Slider, Label, Tabs, List, Picture or Note: click to place one, or drag to size it. A control dropped in a window or box belongs to it and moves with it; drawing a Box around controls groups them. Popups, fields, sliders and lists carry their own label. Guides show while dragging and snap to edges, middles and even spacing (hold ⌘ to place freely). Size S, M or L sets the size of the selected controls and new ones. Arrow joins two things and follows them when they move; type what it means. Double-click anything to change its words; for choices, type one per line. ⌘V pastes a picture. Name the design at the top: it saves itself to `~/Documents/ScreenVibe/UI designs/`. The list on the right opens your designs, and the markups you sent or copied (kept in `~/Documents/ScreenVibe/Markups/`), to change and send again. Send… and Copy work as in a markup; Claude gets the picture and every window and control, nested as drawn, with the arrows.
+
 **Magnifier:** press ⌘⇧7 (or choose Magnifier in the menu), then drag over an area. A box beside it shows that area magnified and live; the area keeps a dashed frame and still works as usual. Drag the frame's edge to move the area, or a dot on it to resize the area; the box follows, at the same zoom. Or press ⌘⇧7 and just click: a box opens where the mouse is and shows what's under it. Drag the box to move it; drag its bottom-right corner to resize it. The bar under it has + and − (1.5× to 8×; the mouse wheel in the box zooms too) and Speak, which reads the words in the box aloud and highlights each one as it's spoken. **Text** finds the whole block of text the box sits on, even the parts outside it, and opens it on the right quarter of the screen, where you can make the words bigger or smaller, have them read aloud (from the selection, if there is one), and copy them. Esc, or ⌘⇧7 again, closes it.
 
 Each palette has a ⋯ menu for Orientation (Vertical or Horizontal) and Size (Expanded, with names, or Condensed, symbols only). Drag a palette by its dotted corner. Right-click the menu bar icon for **Edit tools…** to change the tools or make new ones.
@@ -111,6 +113,11 @@ The code is small and plain. Where things live:
 | `app/Sources/ScreenVibe/Reading.swift` | The magnifier's Text button and its window |
 | `app/Sources/ScreenVibe/Private.swift` | Blur private info: what counts as private, and the covering |
 | `app/Sources/ScreenVibe/Guide.swift` | The guide Claude reads |
+| `app/Sources/ScreenVibe/DesignerWindow.swift` | The UI designer's window, its tools and lists, and what Claude gets |
+| `app/Sources/ScreenVibe/DesignCanvas.swift` | Placing, moving, guides, grouping, arrows and editing words in the designer |
+| `app/Sources/ScreenVibe/DesignDrawing.swift` | How windows, controls and arrows look |
+| `app/Sources/ScreenVibe/Design.swift` | A design and where designs are saved |
+| `app/Sources/ScreenVibe/MarkupFile.swift` | Saved markups, to open again |
 | `app/Sources/ScreenVibe/Context.swift` | Front app, window, file and web address |
 | `mod/hooks/register.ts` | The Claude Code add-on |
 
