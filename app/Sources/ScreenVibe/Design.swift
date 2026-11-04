@@ -57,7 +57,7 @@ enum ItemKind: String, Codable, CaseIterable {
     var isContainer: Bool { self == .window || self == .box }
 
     /// Has a label linked to its left (or above, for a list), which moves with it.
-    var hasLabel: Bool { self == .popup || self == .field || self == .slider || self == .list }
+    var hasLabel: Bool { self == .popup || self == .field || self == .slider || self == .list || self == .radio }
 
     /// Choices typed one per line.
     var hasChoices: Bool { self == .popup || self == .radio || self == .tabs || self == .list }
@@ -88,6 +88,7 @@ struct DesignItem: Codable, Identifiable, Equatable {
     var windowType = WindowType.panel
     var parent: String?     // the window or box it sits in
     var image: String?      // a picture's file in the design's folder
+    var across: Bool?       // radio buttons side by side, not stacked
 
     /// What a new item starts with.
     static func new(_ kind: ItemKind, at r: CGRect, size: ControlSize, windowType: WindowType) -> DesignItem {

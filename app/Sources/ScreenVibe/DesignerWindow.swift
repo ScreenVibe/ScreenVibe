@@ -83,6 +83,12 @@ final class DesignerWindow: NSWindow, NSTextFieldDelegate {
                     NSEvent.mouseEvent(with: t, location: c.convert(p, to: nil), modifierFlags: [], timestamp: 0,
                                        windowNumber: w.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
                 }
+                if let t = env["SCREENVIBE_DESIGN_FREEFORM"] {
+                    let parts = t.components(separatedBy: "@")
+                    let v = parts.count > 1 ? parts[1].split(separator: ",").compactMap { Double($0) } : [900, 120]
+                    c.typeFreeform(parts[0].replacingOccurrences(of: "\\n", with: "\n"), at: CGPoint(x: v[0], y: v[1]))
+                    for it in c.design.items.suffix(20) { print(it.kind.rawValue, it.label, it.title, it.choices, it.on, it.pick, Int(it.frame.minX), Int(it.frame.minY), Int(it.frame.width), Int(it.frame.height)) }
+                }
                 if let t = env["SCREENVIBE_DESIGN_TOOL"], let k = ItemKind(rawValue: t) { c.tool = .item(k) }
                 if v.count >= 4 {
                     c.mouseDown(with: ev(.leftMouseDown, CGPoint(x: v[0], y: v[1])))
@@ -462,7 +468,7 @@ enum DesignText {
         case .button: return "Button \(q(it.title))"
         case .popup: return "Popup\(label), choices \(q(choices))" + (it.choices.first.map { ", shows \(q($0))" } ?? "")
         case .checkbox: return "Checkbox \(q(it.title)), \(it.on ? "checked" : "not checked")"
-        case .radio: return "Radio buttons \(q(choices))" + (it.choices.indices.contains(it.pick) ? ", \(q(it.choices[it.pick])) chosen" : "")
+        case .radio: return "Radio buttons\(label)\(it.across == true ? " side by side" : ""), \(q(choices))" + (it.choices.indices.contains(it.pick) ? ", \(q(it.choices[it.pick])) chosen" : "")
         case .field: return "Text field\(label)" + (it.title.isEmpty ? ", empty" : ", showing \(q(it.title))")
         case .slider: return "Slider\(label)"
         case .label: return "Label \(q(it.title))"
@@ -494,6 +500,7 @@ final class DesignPalette: NSView {
         (.item(.list), "List", "list.bullet.rectangle"),
         (.item(.picture), "Picture", "photo"),
         (.arrow, "Arrow", "arrow.turn.down.right"),
+        (.freeform, "Freeform", "text.cursor"),
         (.item(.note), "Note", "note.text"),
     ]
     private let tile: CGFloat = 42

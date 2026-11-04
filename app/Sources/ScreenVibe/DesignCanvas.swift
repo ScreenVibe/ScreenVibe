@@ -1,7 +1,7 @@
 import AppKit
 
 enum DesignTool: Equatable {
-    case select, item(ItemKind), arrow
+    case select, item(ItemKind), arrow, freeform
 }
 
 /// The grid page: windows and controls placed, moved, sized, grouped and joined with arrows.
@@ -26,6 +26,8 @@ final class DesignCanvas: NSView, NSTextFieldDelegate {
     private var guides: [(CGPoint, CGPoint)] = []
     private var editor: (field: NSTextField, id: String, part: String)?
     private var hover: String?
+    /// Freeform text being typed: where it was clicked, and the window it goes in (none: a new window there).
+    private var freeform: (field: NSTextField, at: CGPoint, window: String?)?
     private var pendingPick: (id: String, row: Int, at: CGPoint)?
     private static let pasteType = NSPasteboard.PasteboardType("com.screenvibe.design-items")
 
@@ -155,7 +157,7 @@ final class DesignCanvas: NSView, NSTextFieldDelegate {
                 let f = design.items[i].frame
                 design.items[i].frame = CGRect(x: f.minX, y: f.midY - s.height / 2, width: f.width, height: s.height)
             } else if k == .radio {
-                design.items[i].frame.size.height = s.rowGap * CGFloat(max(1, design.items[i].choices.count))
+                DesignDrawing.fitRadio(&design.items[i])
             }
         }
         changed()
@@ -188,6 +190,9 @@ final class DesignCanvas: NSView, NSTextFieldDelegate {
             return
         case .item(let k):
             drag = .creating(k, p, p)
+            return
+        case .freeform:
+            startFreeform(at: p)
             return
         case .select: break
         }
@@ -518,6 +523,7 @@ final class DesignCanvas: NSView, NSTextFieldDelegate {
         }
         if chars == "v" { tool = .select; return }
         if chars == "a" { tool = .arrow; return }
+        if chars == "f" { tool = .freeform; return }
         super.keyDown(with: event)
     }
 
@@ -689,6 +695,7 @@ final class DesignCanvas: NSView, NSTextFieldDelegate {
     }
 
     func commitEdit() {
+        finishFreeform()
         guard let e = editor else { return }
         editor = nil
         let raw = e.field.currentEditor()?.string ?? e.field.stringValue
@@ -705,7 +712,7 @@ final class DesignCanvas: NSView, NSTextFieldDelegate {
                 design.items[i].choices = lines
                 design.items[i].pick = min(design.items[i].pick, max(0, lines.count - 1))
                 if design.items[i].kind == .radio {
-                    design.items[i].frame.size.height = design.items[i].size.rowGap * CGFloat(max(1, lines.count))
+                    DesignDrawing.fitRadio(&design.items[i])
                 }
             default: design.items[i].title = text
             }
@@ -714,6 +721,15 @@ final class DesignCanvas: NSView, NSTextFieldDelegate {
     }
 
     func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+        if let ff = freeform, control === ff.field {
+            if selector == #selector(NSResponder.insertNewline(_:)) {
+                if NSApp.currentEvent?.modifierFlags.contains(.command) == true { finishFreeform() }
+                else { textView.insertNewlineIgnoringFieldEditor(nil); fitFreeform() }
+                return true
+            }
+            if selector == #selector(NSResponder.cancelOperation(_:)) { finishFreeform(discard: true); return true }
+            return false
+        }
         guard let e = editor, control === e.field else { return false }
         if selector == #selector(NSResponder.insertNewline(_:)) {
             // Choices and notes take a new line; elsewhere Return is done.
@@ -734,6 +750,101 @@ final class DesignCanvas: NSView, NSTextFieldDelegate {
             return true
         }
         return false
+    }
+
+    // MARK: freeform
+
+    func controlTextDidChange(_ obj: Notification) {
+        if let ff = freeform, (obj.object as? NSTextField) === ff.field { fitFreeform() }
+    }
+
+    private func startFreeform(at p: CGPoint) {
+        commitEdit()
+        let f = NSTextField()
+        f.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
+        f.usesSingleLineMode = false
+        f.cell?.wraps = true
+        f.cell?.isScrollable = false
+        f.isBordered = true
+        f.drawsBackground = true
+        f.backgroundColor = .white
+        f.textColor = .black
+        f.focusRingType = .exterior
+        f.frame = CGRect(x: p.x, y: p.y, width: 420, height: 60)
+        f.delegate = self
+        addSubview(f)
+        let win = design.items.filter { $0.kind == .window && $0.frame.contains(p) }.last?.id
+        freeform = (f, p, win)
+        window?.makeFirstResponder(f)
+        needsDisplay = true
+    }
+
+    /// Test only: types `text` at `p` and finishes it.
+    func typeFreeform(_ text: String, at p: CGPoint) {
+        startFreeform(at: p)
+        freeform?.field.stringValue = text
+        finishFreeform()
+    }
+
+    /// Grows the typing box so every line shows.
+    private func fitFreeform() {
+        guard let ff = freeform else { return }
+        let text = ff.field.currentEditor()?.string ?? ff.field.stringValue
+        let n = CGFloat(max(3, text.components(separatedBy: "\n").count + 1))
+        ff.field.frame.size.height = n * 17 + 8
+    }
+
+    /// Turns the typed lines into controls: in the window clicked, below what is in it, or in a new window there.
+    private func finishFreeform(discard: Bool = false) {
+        guard let ff = freeform else { return }
+        freeform = nil
+        let text = ff.field.currentEditor()?.string ?? ff.field.stringValue
+        ff.field.removeFromSuperview()
+        window?.makeFirstResponder(self)
+        tool = .select
+        needsDisplay = true
+        guard !discard, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        let lines = Freeform.parse(text, size: newSize)
+        pushUndo()
+        var area: CGRect, parent: String
+        if let wid = ff.window, let w = item(wid) {
+            let inside = descendants(of: [wid]).subtracting([wid])
+            let bottom = design.items.filter { inside.contains($0.id) }.map { DesignDrawing.bounds($0).maxY }.max()
+            let top = w.frame.minY + DesignDrawing.titleBarHeight(w) + 16
+            area = CGRect(x: w.frame.minX + 16, y: bottom.map { max(top, $0 + 12) } ?? top, width: w.frame.width - 32, height: 0)
+            parent = wid
+        } else {
+            var w = DesignItem.new(.window, at: CGRect(x: ff.at.x, y: ff.at.y, width: 340, height: 200), size: newSize, windowType: windowType)
+            w.title = windowType.title
+            design.items.append(w)
+            area = CGRect(x: w.frame.minX + 16, y: w.frame.minY + DesignDrawing.titleBarHeight(w) + 16, width: w.frame.width - 32, height: 0)
+            parent = w.id
+        }
+        var placed = Freeform.layout(lines, in: area, parent: parent, size: newSize)
+        if let i = index(parent) {
+            // The window grows to hold what was typed; a new one fits it.
+            let isNew = ff.window == nil
+            let f = design.items[i].frame
+            let needW = placed.right + 16 - f.minX, needH = placed.bottom + 16 - f.minY
+            if isNew {
+                design.items[i].frame.size = CGSize(width: max(240, needW), height: max(80, needH))
+                // Rows pushed right were placed against the first guess at the width; move them to the real edge.
+                let shift = design.items[i].frame.maxX - (area.maxX + 16)
+                if shift != 0 {
+                    for k in placed.items.indices where placed.items[k].frame.maxX > area.maxX - 1 && placed.items[k].kind != .box {
+                        placed.items[k].frame.origin.x += shift
+                    }
+                    for k in placed.items.indices where placed.items[k].kind == .box {
+                        placed.items[k].frame.size.width += shift
+                    }
+                }
+            } else {
+                design.items[i].frame.size = CGSize(width: max(f.width, needW), height: max(f.height, needH))
+            }
+        }
+        design.items += placed.items
+        selection = Set(placed.items.filter { $0.parent == parent }.map(\.id))
+        changed()
     }
 
     private func choosePicture(_ id: String) {

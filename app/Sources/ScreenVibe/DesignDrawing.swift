@@ -40,7 +40,8 @@ enum DesignDrawing {
         if it.kind == .list {
             return CGRect(x: it.frame.minX, y: it.frame.minY - s.height - 4, width: ceil(s.width) + 2, height: ceil(s.height))
         }
-        return CGRect(x: it.frame.minX - 8 - ceil(s.width), y: it.frame.midY - s.height / 2, width: ceil(s.width) + 2, height: ceil(s.height))
+        let midY = it.kind == .radio ? (rows(it).first?.midY ?? it.frame.midY) : it.frame.midY
+        return CGRect(x: it.frame.minX - 8 - ceil(s.width), y: midY - s.height / 2, width: ceil(s.width) + 2, height: ceil(s.height))
     }
 
     /// The item with its label.
@@ -83,6 +84,14 @@ enum DesignDrawing {
     static func rows(_ it: DesignItem) -> [CGRect] {
         let f = it.frame
         switch it.kind {
+        case .radio where it.across == true:
+            let d = checkSquare(it).width
+            var x = f.minX
+            return it.choices.map { c in
+                let w = d + 7 + ceil((c as NSString).size(withAttributes: [.font: it.size.font]).width) + 18
+                defer { x += w }
+                return CGRect(x: x, y: f.minY, width: w, height: f.height)
+            }
         case .radio:
             return it.choices.indices.map { CGRect(x: f.minX, y: f.minY + CGFloat($0) * it.size.rowGap, width: f.width, height: it.size.rowGap) }
         case .list:
@@ -94,6 +103,18 @@ enum DesignDrawing {
             var x = f.midX - ws.reduce(0, +) / 2
             return ws.map { w in defer { x += w }; return CGRect(x: x, y: f.minY, width: w, height: it.size.height) }
         default: return []
+        }
+    }
+
+    /// Radio buttons sized to their choices: one row each, or side by side.
+    static func fitRadio(_ it: inout DesignItem) {
+        if it.across == true {
+            it.frame.size.height = it.size.height
+            var probe = it
+            probe.frame.size.width = 0
+            it.frame.size.width = max(40, rows(probe).last.map { $0.maxX - probe.frame.minX - 10 } ?? 40)
+        } else {
+            it.frame.size.height = it.size.rowGap * CGFloat(max(1, it.choices.count))
         }
     }
 
