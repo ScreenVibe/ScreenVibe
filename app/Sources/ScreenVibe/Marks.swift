@@ -34,6 +34,7 @@ struct Mark {
     var extra = ""                    // the user's own note on this mark, from its note button
     var label = ""                    // a popup's title, drawn left of it
     var checked = false               // a checkbox drawn checked
+    var zoom: CGFloat = 2             // a magnifying circle's zoom
     var targetSize: CGSize?           // where a box+arrow points, once sized on its own; else the source's size
     var paint: Swatch?                // a color picked from the palette, in place of the tool's
 
@@ -346,6 +347,8 @@ enum MarkDrawing {
                 let path = NSBezierPath(roundedRect: m.rect, xRadius: 7, yRadius: 7)
                 fill(path, rect: m.rect, color: color, fill: t.fill)
                 stroke(path, color: color, width: t.lineWidth, dashed: t.dashed)
+            case .loupe:
+                loupe(m, color: color, width: t.lineWidth)
             case .checkbox:
                 let path = NSBezierPath(roundedRect: m.rect, xRadius: 7, yRadius: 7)
                 fill(path, rect: m.rect, color: color, fill: t.fill)
@@ -498,7 +501,56 @@ enum MarkDrawing {
         s.draw(at: CGPoint(x: r.midX - sz.width / 2, y: r.midY - sz.height / 2), withAttributes: attrs)
     }
 
+    /// What is under the marks, for the magnifying circle: the picture, its pixels per point, and the screen point at its
+    /// top-left. Set while marks are drawn.
+    static var backdrop: (image: CGImage, scale: CGFloat, origin: CGPoint)?
+
+    /// The magnifying circle: as wide as the drawn box's short side, in its middle.
+    static func loupeCircle(_ m: Mark) -> CGRect { circle(in: m.rect) }
+
+    /// The dot on the circle's rim that changes the zoom.
+    static func zoomHandle(_ m: Mark) -> CGPoint {
+        let c = loupeCircle(m), r = c.width / 2
+        return CGPoint(x: c.midX + r * 0.7071, y: c.midY + r * 0.7071)
+    }
+
+    private static func loupe(_ m: Mark, color: NSColor, width: Double) {
+        let c = loupeCircle(m)
+        let path = NSBezierPath(ovalIn: c)
+        NSGraphicsContext.saveGraphicsState()
+        let sh = NSShadow()
+        sh.shadowBlurRadius = 10
+        sh.shadowOffset = NSSize(width: 0, height: -3)
+        sh.shadowColor = NSColor.black.withAlphaComponent(0.35)
+        sh.set()
+        NSColor.white.setFill()
+        path.fill()
+        NSGraphicsContext.restoreGraphicsState()
+        if let b = backdrop {
+            let z = max(1, m.zoom), r = c.width / 2 / z
+            let src = CGRect(x: (c.midX - r - b.origin.x) * b.scale, y: (c.midY - r - b.origin.y) * b.scale,
+                             width: 2 * r * b.scale, height: 2 * r * b.scale).integral
+            if let piece = b.image.cropping(to: src) {
+                NSGraphicsContext.saveGraphicsState()
+                path.addClip()
+                NSImage(cgImage: piece, size: src.size).draw(in: c, from: .zero, operation: .sourceOver, fraction: 1,
+                                                             respectFlipped: true, hints: nil)
+                NSGraphicsContext.restoreGraphicsState()
+            }
+        }
+        stroke(path, color: color, width: width + 1, dashed: false)
+    }
+
     static func handles(_ m: Mark) {
+        if m.tool?.shape == .loupe {
+            let z = zoomHandle(m), r = CGRect(x: z.x - 6, y: z.y - 6, width: 12, height: 12)
+            NSColor(hex: "#28C840")!.setFill()
+            NSBezierPath(ovalIn: r).fill()
+            NSColor.white.setStroke()
+            let p = NSBezierPath(ovalIn: r)
+            p.lineWidth = 2
+            p.stroke()
+        }
         var pts: [CGPoint]
         if let t = m.tool, t.shape.isLine {
             pts = [m.start, m.end]

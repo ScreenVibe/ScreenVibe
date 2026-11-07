@@ -48,6 +48,7 @@ enum MarkupFile {
         var checked: Bool
         var targetSize: CGSize?
         var paint: String?
+        var zoom: CGFloat?
     }
 
     /// Saves the markup beside the others; `how` is "sent" or "copied".
@@ -67,7 +68,8 @@ enum MarkupFile {
         var saved: [SavedMark] = []
         for (i, m) in marks.enumerated() {
             var s = SavedMark(kind: "tool", rect: m.rect, start: m.start, end: m.end, points: m.points, text: m.text,
-                              extra: m.extra, label: m.label, checked: m.checked, targetSize: m.targetSize, paint: m.paint?.name)
+                              extra: m.extra, label: m.label, checked: m.checked, targetSize: m.targetSize, paint: m.paint?.name,
+                              zoom: m.zoom)
             switch m.kind {
             case .tool(let t): s.tool = t
             case .pasted(let img, let source):
@@ -146,6 +148,7 @@ enum MarkupFile {
             m.checked = sm.checked
             m.targetSize = sm.targetSize
             m.paint = Swatch.all.first { $0.name == sm.paint }
+            m.zoom = sm.zoom ?? 2
             return m
         }
         return (frozen, crop, marks)

@@ -73,6 +73,8 @@ enum Output {
         ctx.translateBy(x: 0, y: CGFloat(clean.height))
         ctx.scaleBy(x: scale, y: -scale)
         ctx.translateBy(x: -crop.minX, y: -crop.minY)
+        MarkDrawing.backdrop = (clean, scale, crop.origin)
+        defer { MarkDrawing.backdrop = nil }
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: true)
         MarkDrawing.drawAll(marks, within: crop)
@@ -180,6 +182,7 @@ enum Output {
                 case .line: line += " Line \(pt(m.start)) to \(pt(m.end))."
                 case .boxArrow: line += " Area \(box(m.rect)) → \(box(m.target))."
                 case .text: line += " At \(pt(m.rect.origin))."
+                case .loupe: line += " Circle \(box(MarkDrawing.loupeCircle(m))), shown \(String(format: "%.1f", Double(m.zoom)))×."
                 default: line += " Area \(box(m.area))."
                 }
             }

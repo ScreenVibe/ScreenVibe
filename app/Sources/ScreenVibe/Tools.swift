@@ -2,7 +2,7 @@ import AppKit
 
 /// The drawn form a tool makes.
 enum ToolShape: String, Codable, CaseIterable {
-    case box, oval, arrow, line, boxArrow, pen, text, popup, dots, checkbox
+    case box, oval, arrow, line, boxArrow, pen, text, popup, dots, checkbox, loupe
 
     /// Drawn from a start point to an end point.
     var isLine: Bool { self == .arrow || self == .line }
@@ -19,6 +19,7 @@ enum ToolShape: String, Codable, CaseIterable {
         case .popup: return "Popup"
         case .dots: return "⋯ menu"
         case .checkbox: return "Checkbox"
+        case .loupe: return "Magnify"
         }
     }
 }
@@ -60,7 +61,7 @@ struct ToolDef: Codable, Identifiable, Equatable {
     var color: NSColor { NSColor(hex: colorHex) ?? .systemRed }
 
     /// The plain drawing tools. They share one Draw tile on the palette, and only they take a picked color.
-    static let drawIDs = ["rect", "oval", "line", "arrow", "pen"]
+    static let drawIDs = ["rect", "oval", "line", "arrow", "pen", "loupe"]
     var isDraw: Bool { Self.drawIDs.contains(id) }
 }
 
@@ -91,7 +92,7 @@ final class ToolStore {
         let key = "toolsAdded"
         var added = Set(UserDefaults.standard.stringArray(forKey: key) ?? [])
         var changed = false
-        for id in ["popup", "dots", "checkbox"] where !added.contains(id) {
+        for id in ["popup", "dots", "checkbox", "loupe"] where !added.contains(id) {
             added.insert(id)
             guard !tools.contains(where: { $0.id == id }), let t = Self.builtIns.first(where: { $0.id == id }) else { continue }
             let after = tools.lastIndex { ["button", "popup", "dots"].contains($0.id) }.map { $0 + 1 } ?? tools.count
@@ -154,6 +155,8 @@ final class ToolStore {
                 intent: "Look where this points.", shortcut: "a"),
         ToolDef(id: "oval", name: "Oval", symbol: "circle", shape: .oval, colorHex: "#E0261B", lineWidth: 3,
                 intent: "Look here.", shortcut: "o"),
+        ToolDef(id: "loupe", name: "Magnify", symbol: "magnifyingglass.circle", shape: .loupe, colorHex: "#E0261B", lineWidth: 3,
+                intent: "Look closely here: this circle shows the part under it magnified.", shortcut: "g"),
     ]
 }
 

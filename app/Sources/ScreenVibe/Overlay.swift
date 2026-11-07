@@ -371,6 +371,7 @@ final class Canvas: NSView, NSTextFieldDelegate {
         case movingEnd(Int)
         case movingTarget(Int, CGPoint)
         case resizingCrop(handle: Int)
+        case zooming(Int, from: CGPoint, start: CGFloat)
         case movingCrop(CGPoint)
         case marquee(CGPoint)
     }
@@ -423,6 +424,9 @@ final class Canvas: NSView, NSTextFieldDelegate {
         if spaceDown { NSCursor.openHand.set(); return }
         if aiming != nil { NSCursor.crosshair.set(); return }
         if marks.indices.contains(where: { near(p, MarkDrawing.badgePoint(marks[$0]), 12) }) { NSCursor.pointingHand.set(); return }
+        if tool == nil, let s = selected, s < marks.count, marks[s].tool?.shape == .loupe, near(p, MarkDrawing.zoomHandle(marks[s]), 9) {
+            NSCursor.pointingHand.set(); return
+        }
         if cropping, let c = crop {
             if let k = cropHandles(c).firstIndex(where: { near(p, $0) }) { Cursors.resize(handle: k).set() }
             else { NSCursor.crosshair.set() }
@@ -494,6 +498,7 @@ final class Canvas: NSView, NSTextFieldDelegate {
         if let t = tool("note") { var m = Mark(kind: .tool(t)); m.rect = CGRect(x: c.minX + 400, y: c.minY + 40, width: 0, height: 0); m.text = "Too much space up here"; marks.append(m) }
         let paints = Dictionary(uniqueKeysWithValues: Swatch.all.map { ($0.name, $0) })
         if let t = tool("rect") { var m = Mark(kind: .tool(t)); m.rect = CGRect(x: c.minX + 420, y: c.minY + 120, width: 120, height: 70); m.paint = paints["green"]; marks.append(m) }
+        if let t = tool("loupe") { var m = Mark(kind: .tool(t)); m.rect = CGRect(x: c.minX + 420, y: c.minY + 40, width: 130, height: 130); m.zoom = 2.5; marks.append(m) }
         if let t = tool("oval") { var m = Mark(kind: .tool(t)); m.rect = CGRect(x: c.minX + 570, y: c.minY + 120, width: 120, height: 70); m.paint = paints["yellow"]; marks.append(m) }
         if let t = tool("line") { var m = Mark(kind: .tool(t)); m.start = CGPoint(x: c.minX + 420, y: c.minY + 230); m.end = CGPoint(x: c.minX + 560, y: c.minY + 290); m.paint = paints["cyan"]; marks.append(m) }
         if let t = tool("arrow") { var m = Mark(kind: .tool(t)); m.start = CGPoint(x: c.minX + 590, y: c.minY + 300); m.end = CGPoint(x: c.minX + 690, y: c.minY + 220); m.paint = paints["white"]; marks.append(m) }
@@ -568,6 +573,8 @@ final class Canvas: NSView, NSTextFieldDelegate {
 
     override func draw(_ dirtyRect: NSRect) {
         background.draw(in: bounds, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+        MarkDrawing.backdrop = (frozen.image, frozen.scale, .zero)
+        defer { MarkDrawing.backdrop = nil }
         NSGraphicsContext.current?.compositingOperation = .sourceOver
         if let c = crop {
             let dim = NSBezierPath(rect: bounds)
@@ -689,7 +696,7 @@ final class Canvas: NSView, NSTextFieldDelegate {
         var m = Mark(kind: .tool(t))
         m.paint = t.isDraw ? nextPaint : nil
         switch t.shape {
-        case .box, .oval, .boxArrow, .popup, .dots, .checkbox: m.rect = CGRect(origin: p, size: .zero)
+        case .box, .oval, .boxArrow, .popup, .dots, .checkbox, .loupe: m.rect = CGRect(origin: p, size: .zero)
         case .arrow, .line: m.start = p; m.end = p
         case .pen: m.points = [p]
         case .text:
@@ -717,6 +724,10 @@ final class Canvas: NSView, NSTextFieldDelegate {
             if let t = m.tool, t.shape.isLine {
                 if near(p, m.start) { pushUndo(); drag = .movingStart(s); return }
                 if near(p, m.end) { pushUndo(); drag = .movingEnd(s); return }
+            } else if m.tool?.shape == .loupe, near(p, MarkDrawing.zoomHandle(m), 9) {
+                pushUndo()
+                drag = .zooming(s, from: p, start: m.zoom)
+                return
             } else if m.tool?.shape != .pen && m.tool?.shape != .text {
                 let a = m.area
                 let corners = [CGPoint(x: a.minX, y: a.minY), CGPoint(x: a.maxX, y: a.minY),
@@ -818,6 +829,10 @@ final class Canvas: NSView, NSTextFieldDelegate {
             controller?.placePalettes()
         case .marquee(let s):
             pixelSelection = CGRect(p1: s, p2: p)
+        case .zooming(let i, let from, let start):
+            // Out from the middle zooms in; back toward it zooms out.
+            let d = ((p.x - from.x) + (p.y - from.y)) / 2
+            marks[i].zoom = min(8, max(1.2, start * pow(1.015, d)))
         }
         needsDisplay = true
     }
@@ -837,7 +852,15 @@ final class Canvas: NSView, NSTextFieldDelegate {
         case .drawing(var m, _):
             guard let t = m.tool else { break }
             let a = m.area
-            if (t.shape == .pen && m.points.count < 2) || (t.shape != .pen && max(a.width, a.height) < 6) { break }
+            var m = m
+            if t.shape == .loupe {
+                // A click makes a circle there; a drag, a circle as wide as the drag.
+                let d = max(a.width, a.height) < 6 ? 140 : max(40, max(a.width, a.height))
+                let c = max(a.width, a.height) < 6 ? m.rect.origin : CGPoint(x: a.midX, y: a.midY)
+                m.rect = CGRect(x: c.x - d / 2, y: c.y - d / 2, width: d, height: d)
+            }
+            let a2 = m.area
+            if (t.shape == .pen && m.points.count < 2) || (t.shape != .pen && max(a2.width, a2.height) < 6) { break }
             pushUndo()
             if t.shape == .popup { m.label = "Label"; m.text = "Item 1\nItem 2" }
             if t.shape == .checkbox { m.text = "Label" }
@@ -860,6 +883,15 @@ final class Canvas: NSView, NSTextFieldDelegate {
         default: break
         }
         updateCursor(at: point(event))
+        needsDisplay = true
+    }
+
+    /// The wheel over a magnifying circle changes its zoom.
+    override func scrollWheel(with event: NSEvent) {
+        let p = point(event)
+        guard let i = marks.indices.reversed().first(where: { marks[$0].tool?.shape == .loupe && MarkDrawing.loupeCircle(marks[$0]).contains(p) })
+        else { super.scrollWheel(with: event); return }
+        marks[i].zoom = min(8, max(1.2, marks[i].zoom * pow(1.02, event.scrollingDeltaY)))
         needsDisplay = true
     }
 

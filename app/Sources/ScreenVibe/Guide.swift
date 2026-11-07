@@ -76,6 +76,7 @@ enum Guide {
         case .pen: parts.append("a free drawing")
         case .text: parts.append("a note bubble")
         case .popup: parts.append("a pop-up menu, drawn open, with its title to its left; the title is in quotes after its name, the words are its choices, split by “ / ”, and the first is what it shows when closed")
+        case .loupe: parts.append("a circle showing the part under it magnified")
         case .checkbox: parts.append("a checkbox with its label; “on” or “off” says whether it starts checked")
         case .dots: parts.append("a round button with three dots that opens a menu; the words are its items, split by “ / ”")
         }
