@@ -191,8 +191,14 @@ final class OverlayController {
                 let tile = toolTile(d, large: large)
                 tile.isOn = canvas.tool?.isDraw == true
                 tile.hasMore = true
-                tile.toolTip = "Draw: \(d.name). Hold to pick Rect, Oval, Line, Arrow or Pen."
+                tile.toolTip = "Draw: \(d.name). Click again, or hold, to pick Rect, Oval, Line, Arrow or Pen."
                 tile.onHold = { [weak self, weak tile] in if let tile { self?.showDrawShapes(from: tile, large: large) } }
+                // The first click picks Draw; a click while Draw is in use opens the other shapes.
+                tile.onClick = { [weak self, weak tile] in
+                    guard let self else { return }
+                    if self.canvas.tool?.isDraw == true, let tile { self.showDrawShapes(from: tile, large: large) }
+                    else { self.canvas.setTool(d) }
+                }
                 tiles.append(tile)
                 continue
             }
@@ -343,6 +349,8 @@ final class Canvas: NSView, NSTextFieldDelegate {
     private(set) var marks: [Mark] = []
     private(set) var tool: ToolDef?
     private var selected: Int? { didSet { controller?.swatches?.needsDisplay = true } }
+    /// The selected mark was clicked, not just drawn.
+    private var selectedByHand = false
     /// The color for the next marks, picked with nothing selected. Lasts for this markup.
     private var nextPaint: Swatch? {
         didSet { controller?.swatches?.needsDisplay = true; controller?.refreshToolColors() }
@@ -403,6 +411,7 @@ final class Canvas: NSView, NSTextFieldDelegate {
 
     /// A finished mark: back to Select with the new mark selected, ready to adjust.
     private func finishMark(_ i: Int) {
+        selectedByHand = false
         tool = nil
         cropping = false
         selected = i
@@ -437,22 +446,19 @@ final class Canvas: NSView, NSTextFieldDelegate {
     }
 
 
-    /// The color the palette shows as picked: the selected mark's, else the one for the next marks.
-    var currentPaint: Swatch? {
-        if let s = selected, s < marks.count, marks[s].isDraw { return marks[s].paint }
-        return nextPaint
-    }
+    /// The color the palette shows as picked: the one the next Draw marks get. It stays picked.
+    var currentPaint: Swatch? { nextPaint }
 
-    /// Recolors the selected Draw mark, or otherwise sets the color of the next Draw marks. Picking it again goes back to the tool's color.
+    /// Sets the color of the next Draw marks (and of the Draw symbols). A Draw mark you selected yourself takes it too;
+    /// the one just drawn, selected by itself, keeps its color.
     func pick(_ w: Swatch) {
         commitEditor()
-        if let s = selected, s < marks.count, marks[s].isDraw {
+        if let s = selected, s < marks.count, marks[s].isDraw, selectedByHand, marks[s].paint != w {
             pushUndo()
-            marks[s].paint = marks[s].paint == w ? nil : w
-            controller?.swatches?.needsDisplay = true
-        } else {
-            nextPaint = nextPaint == w ? nil : w
+            marks[s].paint = w
         }
+        nextPaint = w
+        controller?.swatches?.needsDisplay = true
         needsDisplay = true
     }
 
@@ -725,6 +731,7 @@ final class Canvas: NSView, NSTextFieldDelegate {
         }
         if let i = marks.indices.reversed().first(where: { marks[$0].hit(p) }) {
             selected = i
+            selectedByHand = true
             pixelSelection = nil
             if let part = MarkDrawing.part(of: marks[i], at: p) {
                 if part == .check {
