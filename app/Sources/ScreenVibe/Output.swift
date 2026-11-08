@@ -169,6 +169,9 @@ enum Output {
             var what = name(of: m)
             if m.tool?.shape == .popup, !m.label.isEmpty { what += " “\(m.label)”" }
             if m.tool?.shape == .checkbox { what += m.checked ? ", on" : ", off" }
+            if m.isButton, let icon = m.icon {
+                what += " with the LEAP \(LeapIcons.name(icon)) icon (\(LeapIcons.url(icon)?.path ?? icon + ".png"))"
+            }
             var line = "\(i + 1). \(what)\(m.paint.map { ", \($0.name)" } ?? "")" + (said.isEmpty ? "." : ": “\(said)”.")
             switch m.kind {
             case .pasted(_, let source):
@@ -182,7 +185,9 @@ enum Output {
                 case .line: line += " Line \(pt(m.start)) to \(pt(m.end))."
                 case .boxArrow: line += " Area \(box(m.rect)) → \(box(m.target))."
                 case .text: line += " At \(pt(m.rect.origin))."
-                case .loupe: line += " Circle \(box(MarkDrawing.loupeCircle(m))), shown \(String(format: "%.1f", Double(m.zoom)))×."
+                case .loupe:
+                    line += " The spot \(box(MarkDrawing.spotCircle(m))), shown \(String(format: "%.1f", Double(m.zoom)))×"
+                        + " in the circle at \(box(MarkDrawing.loupeCircle(m)))."
                 default: line += " Area \(box(m.area))."
                 }
             }

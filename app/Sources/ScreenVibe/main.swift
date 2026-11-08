@@ -149,6 +149,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let path = ProcessInfo.processInfo.environment["SCREENVIBE_DUMP_PALETTE"] {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
                 if let shapes = ProcessInfo.processInfo.environment["SCREENVIBE_DUMP_SHAPES"] { o.dumpDrawShapes(to: shapes) }
+                if let icons = ProcessInfo.processInfo.environment["SCREENVIBE_DUMP_ICONS"] { o.canvas.dumpIconPicker(to: icons) }
                 if let v = o.toolsPalette.contentView, let rep = v.bitmapImageRepForCachingDisplay(in: v.bounds) {
                     v.cacheDisplay(in: v.bounds, to: rep)
                     try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))

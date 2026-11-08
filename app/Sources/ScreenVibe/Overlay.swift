@@ -82,11 +82,11 @@ final class OverlayController {
         for (t, tile) in toolTileList { tile.tint = Self.tint(t.isDraw ? canvas.nextColor ?? t.color : t.color) }
     }
 
-    /// The Draw tile's tool: the one in use, else the last one used.
-    private var currentDrawTool: ToolDef? {
-        let group = ToolStore.shared.drawTools
-        if let t = canvas.tool, t.isDraw { return t }
-        let saved = UserDefaults.standard.string(forKey: "drawTool")
+    /// What a Draw tile shows: its tool in use, else the one of its pair used last.
+    private func currentDrawTool(group g: Int) -> ToolDef? {
+        let group = ToolStore.shared.drawTools(group: g)
+        if let t = canvas.tool, t.drawGroup == g { return t }
+        let saved = UserDefaults.standard.string(forKey: "drawTool.\(g)")
         return group.first { $0.id == saved } ?? group.first
     }
 
@@ -103,11 +103,11 @@ final class OverlayController {
     private var flyout: NSPanel?
     private var flyoutWatch: Any?
 
-    /// The Draw shapes in a row beside the Draw tile (under it when the palette is horizontal).
-    private func showDrawShapes(from anchor: Tile, large: Bool) {
+    /// A tile's pair (Rect and Oval, or Arrow and Line) in a row beside it (under it when the palette is horizontal).
+    private func showDrawShapes(from anchor: Tile, group g: Int, large: Bool) {
         closeFlyout()
         guard let win = anchor.window else { return }
-        let tiles = ToolStore.shared.drawTools.map { t -> Tile in
+        let tiles = ToolStore.shared.drawTools(group: g).map { t -> Tile in
             let tile = toolTile(t, large: large)
             tile.onClick = { [weak self] in self?.closeFlyout(); self?.canvas.setTool(t) }
             return tile
@@ -146,8 +146,8 @@ final class OverlayController {
 
     /// For checking the look: opens the Draw shapes and writes a picture of only that row.
     func dumpDrawShapes(to path: String) {
-        guard let tile = toolTileList.first(where: { $0.tile.hasMore })?.tile else { return }
-        showDrawShapes(from: tile, large: toolsPalette.large)
+        guard let (t, tile) = toolTileList.first(where: { $0.tile.hasMore }), let g = t.drawGroup else { return }
+        showDrawShapes(from: tile, group: g, large: toolsPalette.large)
         if let v = flyout?.contentView, let rep = v.bitmapImageRepForCachingDisplay(in: v.bounds) {
             v.cacheDisplay(in: v.bounds, to: rep)
             try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
@@ -185,21 +185,28 @@ final class OverlayController {
         var drawShown = false
         for t in ToolStore.shared.tools {
             if t.isDraw {
-                // Rect, Oval, Line, Arrow and Pen share one tile, showing the one last used. Hold it to pick another.
-                guard !drawShown, let d = currentDrawTool else { continue }
+                // Four Draw tiles where the first Draw tool sits. A pair's tile shows the one used last;
+                // a click while it is in use, or a hold, shows the pair.
+                guard !drawShown else { continue }
                 drawShown = true
-                let tile = toolTile(d, large: large)
-                tile.isOn = canvas.tool?.isDraw == true
-                tile.hasMore = true
-                tile.toolTip = "Draw: \(d.name). Click again, or hold, to pick Rect, Oval, Line, Arrow or Pen."
-                tile.onHold = { [weak self, weak tile] in if let tile { self?.showDrawShapes(from: tile, large: large) } }
-                // The first click picks Draw; a click while Draw is in use opens the other shapes.
-                tile.onClick = { [weak self, weak tile] in
-                    guard let self else { return }
-                    if self.canvas.tool?.isDraw == true, let tile { self.showDrawShapes(from: tile, large: large) }
-                    else { self.canvas.setTool(d) }
+                for g in ToolDef.drawGroups.indices {
+                    guard let d = currentDrawTool(group: g) else { continue }
+                    let tile = toolTile(d, large: large)
+                    tile.isOn = canvas.tool?.drawGroup == g
+                    let pair = ToolStore.shared.drawTools(group: g)
+                    if pair.count > 1 {
+                        tile.hasMore = true
+                        tile.toolTip = "\(d.name) (\(d.shortcut.uppercased())). Click again, or hold, for "
+                            + pair.map(\.name).joined(separator: " or ") + "."
+                        tile.onHold = { [weak self, weak tile] in if let tile { self?.showDrawShapes(from: tile, group: g, large: large) } }
+                        tile.onClick = { [weak self, weak tile] in
+                            guard let self else { return }
+                            if self.canvas.tool?.drawGroup == g, let tile { self.showDrawShapes(from: tile, group: g, large: large) }
+                            else { self.canvas.setTool(d) }
+                        }
+                    }
+                    tiles.append(tile)
                 }
-                tiles.append(tile)
                 continue
             }
             tiles.append(toolTile(t, large: large))
@@ -359,6 +366,7 @@ final class Canvas: NSView, NSTextFieldDelegate {
     private var pixelSelection: CGRect?
     private var clip: (image: NSImage, source: CGRect)?
     private var undoStack: [(marks: [Mark], crop: CGRect?)] = []
+    private var iconPicker: IconPicker?
 
     private enum Drag {
         case none
@@ -370,6 +378,7 @@ final class Canvas: NSView, NSTextFieldDelegate {
         case movingStart(Int)
         case movingEnd(Int)
         case movingTarget(Int, CGPoint)
+        case movingSpot(Int, CGPoint)
         case resizingCrop(handle: Int)
         case zooming(Int, from: CGPoint, start: CGFloat)
         case movingCrop(CGPoint)
@@ -424,8 +433,12 @@ final class Canvas: NSView, NSTextFieldDelegate {
         if spaceDown { NSCursor.openHand.set(); return }
         if aiming != nil { NSCursor.crosshair.set(); return }
         if marks.indices.contains(where: { near(p, MarkDrawing.badgePoint(marks[$0]), 12) }) { NSCursor.pointingHand.set(); return }
+        if marks.contains(where: { $0.isButton && near(p, MarkDrawing.iconBadgePoint($0), 11) }) { NSCursor.pointingHand.set(); return }
         if tool == nil, let s = selected, s < marks.count, marks[s].tool?.shape == .loupe, near(p, MarkDrawing.zoomHandle(marks[s]), 9) {
             NSCursor.pointingHand.set(); return
+        }
+        if tool == nil, marks.contains(where: { $0.tool?.shape == .loupe && MarkDrawing.onSpot($0, p) }) {
+            NSCursor.openHand.set(); return
         }
         if cropping, let c = crop {
             if let k = cropHandles(c).firstIndex(where: { near(p, $0) }) { Cursors.resize(handle: k).set() }
@@ -479,7 +492,7 @@ final class Canvas: NSView, NSTextFieldDelegate {
         commitEditor()
         cropping = false
         tool = t
-        if let t, t.isDraw { UserDefaults.standard.set(t.id, forKey: "drawTool") }
+        if let t, let g = t.drawGroup { UserDefaults.standard.set(t.id, forKey: "drawTool.\(g)") }
         if t != nil { selected = nil }
         controller?.refreshTools()
         needsDisplay = true
@@ -493,12 +506,12 @@ final class Canvas: NSView, NSTextFieldDelegate {
         func tool(_ id: String) -> ToolDef? { tools.first { $0.id == id } }
         if let t = tool("remove") { var m = Mark(kind: .tool(t)); m.rect = CGRect(x: c.minX + 30, y: c.minY + 40, width: 260, height: 50); marks.append(m) }
         if let t = tool("wording") { var m = Mark(kind: .tool(t)); m.rect = CGRect(x: c.minX + 30, y: c.minY + 130, width: 140, height: 40); m.text = "Save changes"; marks.append(m) }
-        if let t = tool("button") { var m = Mark(kind: .tool(t)); m.rect = CGRect(x: c.minX + 220, y: c.minY + 130, width: 130, height: 44); m.text = ProcessInfo.processInfo.environment["SCREENVIBE_DEMO_LABEL"] ?? "Export"; marks.append(m) }
+        if let t = tool("button") { var m = Mark(kind: .tool(t)); m.rect = CGRect(x: c.minX + 220, y: c.minY + 130, width: 130, height: 44); m.text = ProcessInfo.processInfo.environment["SCREENVIBE_DEMO_LABEL"] ?? "Export"; m.icon = ProcessInfo.processInfo.environment["SCREENVIBE_DEMO_ICON"]; marks.append(m) }
         if let t = tool("move") { var m = Mark(kind: .tool(t)); m.rect = CGRect(x: c.minX + 30, y: c.minY + 230, width: 110, height: 40); m.end = CGPoint(x: c.maxX - 90, y: c.minY + 250); marks.append(m) }
         if let t = tool("note") { var m = Mark(kind: .tool(t)); m.rect = CGRect(x: c.minX + 400, y: c.minY + 40, width: 0, height: 0); m.text = "Too much space up here"; marks.append(m) }
         let paints = Dictionary(uniqueKeysWithValues: Swatch.all.map { ($0.name, $0) })
         if let t = tool("rect") { var m = Mark(kind: .tool(t)); m.rect = CGRect(x: c.minX + 420, y: c.minY + 120, width: 120, height: 70); m.paint = paints["green"]; marks.append(m) }
-        if let t = tool("loupe") { var m = Mark(kind: .tool(t)); m.rect = CGRect(x: c.minX + 420, y: c.minY + 40, width: 130, height: 130); m.zoom = 2.5; marks.append(m) }
+        if let t = tool("loupe") { var m = Mark(kind: .tool(t)); m.rect = CGRect(x: c.minX + 440, y: c.minY + 160, width: 150, height: 150); m.zoom = 3; m.spot = CGPoint(x: c.minX + 335, y: c.minY + 33); marks.append(m) }
         if let t = tool("oval") { var m = Mark(kind: .tool(t)); m.rect = CGRect(x: c.minX + 570, y: c.minY + 120, width: 120, height: 70); m.paint = paints["yellow"]; marks.append(m) }
         if let t = tool("line") { var m = Mark(kind: .tool(t)); m.start = CGPoint(x: c.minX + 420, y: c.minY + 230); m.end = CGPoint(x: c.minX + 560, y: c.minY + 290); m.paint = paints["cyan"]; marks.append(m) }
         if let t = tool("arrow") { var m = Mark(kind: .tool(t)); m.start = CGPoint(x: c.minX + 590, y: c.minY + 300); m.end = CGPoint(x: c.minX + 690, y: c.minY + 220); m.paint = paints["white"]; marks.append(m) }
@@ -675,6 +688,15 @@ final class Canvas: NSView, NSTextFieldDelegate {
             NSCursor.closedHand.set()
             return
         }
+        if let picker = iconPicker {
+            picker.removeFromSuperview()
+            iconPicker = nil
+            return
+        }
+        if let i = marks.indices.reversed().first(where: { marks[$0].isButton && near(p, MarkDrawing.iconBadgePoint(marks[$0]), 11) }) {
+            openIconPicker(for: i)
+            return
+        }
         if let i = marks.indices.reversed().first(where: { near(p, MarkDrawing.badgePoint(marks[$0]), 12) }) {
             openEditor(for: i, isNew: false, note: true)
             return
@@ -759,6 +781,9 @@ final class Canvas: NSView, NSTextFieldDelegate {
             } else if marks[i].isBoxArrow, !marks[i].rect.insetBy(dx: -6, dy: -6).contains(p), marks[i].target.contains(p) {
                 pushUndo()
                 drag = .movingTarget(i, p)  // dragging the destination moves only the destination
+            } else if marks[i].tool?.shape == .loupe, MarkDrawing.onSpot(marks[i], p) {
+                pushUndo()
+                drag = .movingSpot(i, p)    // the small circle moves alone; the big one shows what is under it now
             } else {
                 pushUndo()
                 drag = .moving(i, p)
@@ -790,6 +815,10 @@ final class Canvas: NSView, NSTextFieldDelegate {
             switch m.tool?.shape {
             case .arrow, .line: m.end = p
             case .pen: m.points.append(p)
+            case .loupe:
+                // From the spot to where the big circle goes.
+                m.spot = s
+                m.rect = CGRect(x: p.x - Self.loupeSize / 2, y: p.y - Self.loupeSize / 2, width: Self.loupeSize, height: Self.loupeSize)
             default: m.rect = CGRect(p1: s, p2: p)
             }
             drag = .drawing(m, s)
@@ -809,6 +838,10 @@ final class Canvas: NSView, NSTextFieldDelegate {
         case .movingTarget(let i, let last):
             marks[i].end = CGPoint(x: marks[i].end.x + p.x - last.x, y: marks[i].end.y + p.y - last.y)
             drag = .movingTarget(i, p)
+        case .movingSpot(let i, let last):
+            let s = MarkDrawing.spotCircle(marks[i])
+            marks[i].spot = CGPoint(x: s.midX + p.x - last.x, y: s.midY + p.y - last.y)
+            drag = .movingSpot(i, p)
         case .resizingTarget(let i, let corner):
             let a = marks[i].target
             let fixed = [CGPoint(x: a.maxX, y: a.maxY), CGPoint(x: a.minX, y: a.maxY),
@@ -854,10 +887,17 @@ final class Canvas: NSView, NSTextFieldDelegate {
             let a = m.area
             var m = m
             if t.shape == .loupe {
-                // A click makes a circle there; a drag, a circle as wide as the drag.
-                let d = max(a.width, a.height) < 6 ? 140 : max(40, max(a.width, a.height))
-                let c = max(a.width, a.height) < 6 ? m.rect.origin : CGPoint(x: a.midX, y: a.midY)
-                m.rect = CGRect(x: c.x - d / 2, y: c.y - d / 2, width: d, height: d)
+                m.zoom = 3
+                let s = m.spot ?? m.rect.origin, d = Self.loupeSize
+                if m.spot == nil || hypot(a.midX - s.x, a.midY - s.y) < 6 {
+                    // A click: the big circle above and to the right of the spot, or wherever it fits on the screen.
+                    m.spot = s
+                    let gap: CGFloat = 0.62 * d
+                    var c = CGPoint(x: s.x + gap, y: s.y - gap)
+                    if c.x + d / 2 > bounds.maxX { c.x = s.x - gap }
+                    if c.y - d / 2 < bounds.minY { c.y = s.y + gap }
+                    m.rect = CGRect(x: c.x - d / 2, y: c.y - d / 2, width: d, height: d)
+                }
             }
             let a2 = m.area
             if (t.shape == .pen && m.points.count < 2) || (t.shape != .pen && max(a2.width, a2.height) < 6) { break }
@@ -885,6 +925,33 @@ final class Canvas: NSView, NSTextFieldDelegate {
         updateCursor(at: point(event))
         needsDisplay = true
     }
+
+    /// The LEAP icons under a button's icon badge.
+    func openIconPicker(for i: Int) {
+        let b = MarkDrawing.iconBadgePoint(marks[i]), size = IconPicker.size
+        var o = CGPoint(x: b.x - 11, y: b.y + 15)
+        o.x = min(max(bounds.minX + 6, o.x), bounds.maxX - size.width - 6)
+        if o.y + size.height > bounds.maxY - 6 { o.y = b.y - 15 - size.height }
+        let picker = IconPicker(at: o, current: marks[i].icon) { [weak self] id in
+            guard let self, i < self.marks.count else { return }
+            self.pushUndo()
+            self.marks[i].icon = id
+            self.iconPicker = nil
+            self.needsDisplay = true
+        }
+        addSubview(picker)
+        iconPicker = picker
+    }
+
+    /// For checking the look: opens the picker on the first button and writes a picture of it.
+    func dumpIconPicker(to path: String) {
+        guard let i = marks.firstIndex(where: \.isButton) else { return }
+        openIconPicker(for: i)
+        iconPicker?.dump(to: path)
+    }
+
+    /// A new magnifying circle's width.
+    static let loupeSize: CGFloat = 180
 
     /// The wheel over a magnifying circle changes its zoom.
     override func scrollWheel(with event: NSEvent) {
@@ -914,7 +981,8 @@ final class Canvas: NSView, NSTextFieldDelegate {
             if !spaceDown { spaceDown = true; NSCursor.openHand.set() }
             return
         case 53: // Escape
-            if let i = aiming { aiming = nil; marks[i].end = .zero; marks.remove(at: i); needsDisplay = true }
+            if let picker = iconPicker { picker.removeFromSuperview(); iconPicker = nil }
+            else if let i = aiming { aiming = nil; marks[i].end = .zero; marks.remove(at: i); needsDisplay = true }
             else if pixelSelection != nil { pixelSelection = nil; needsDisplay = true }
             else if selected != nil { selected = nil; needsDisplay = true }
             else { controller?.close() }

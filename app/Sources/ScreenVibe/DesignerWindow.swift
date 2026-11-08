@@ -63,7 +63,7 @@ final class DesignerWindow: NSWindow, NSTextFieldDelegate {
         _ = add(.popup, CGRect(x: 600, y: 164, width: 140, height: 24), parent: modal) { $0.label = "Format"; $0.choices = ["PNG", "PDF"] }
         _ = add(.field, CGRect(x: 600, y: 198, width: 200, height: 24), parent: modal) { $0.label = "Name"; $0.title = "Team logo" }
         _ = add(.radio, CGRect(x: 600, y: 232, width: 160, height: 44), parent: modal) { $0.choices = ["Whole page", "Selection"] }
-        _ = add(.button, CGRect(x: 664, y: 300, width: 90, height: 24), parent: modal) { $0.title = "Cancel" }
+        _ = add(.button, CGRect(x: 664, y: 300, width: 90, height: 24), parent: modal) { $0.title = "Cancel"; $0.icon = "close" }
         _ = add(.button, CGRect(x: 762, y: 300, width: 90, height: 24), parent: modal) { $0.title = "Export" }
         _ = add(.note, CGRect(x: 520, y: 380, width: 200, height: 60)) { $0.title = "Remember the last format." }
         d.links = [DesignLink(from: export, to: modal, text: "opens")]
@@ -465,7 +465,7 @@ enum DesignText {
         switch it.kind {
         case .window: return "\(it.windowType.title) \(q(it.title))"
         case .box: return it.title.isEmpty ? "Box (groups what is in it)" : "Box \(q(it.title)) (groups what is in it)"
-        case .button: return "Button \(q(it.title))"
+        case .button: return "Button \(q(it.title))" + (it.icon.map { " with the LEAP \(LeapIcons.name($0)) icon (\(LeapIcons.url($0)?.path ?? $0 + ".png"))" } ?? "")
         case .popup: return "Popup\(label), choices \(q(choices))" + (it.choices.first.map { ", shows \(q($0))" } ?? "")
         case .checkbox: return "Checkbox \(q(it.title)), \(it.on ? "checked" : "not checked")"
         case .radio: return "Radio buttons\(label)\(it.across == true ? " side by side" : ""), \(q(choices))" + (it.choices.indices.contains(it.pick) ? ", \(q(it.choices[it.pick])) chosen" : "")

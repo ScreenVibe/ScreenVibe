@@ -60,8 +60,11 @@ struct ToolDef: Codable, Identifiable, Equatable {
 
     var color: NSColor { NSColor(hex: colorHex) ?? .systemRed }
 
-    /// The plain drawing tools. They share one Draw tile on the palette, and only they take a picked color.
-    static let drawIDs = ["rect", "oval", "line", "arrow", "pen", "loupe"]
+    /// The plain drawing tools. Only they take a picked color.
+    static let drawIDs = ["rect", "oval", "arrow", "line", "pen", "loupe"]
+    /// How they sit on the palette: Rect and Oval share a tile, Arrow and Line share one, Pen and Magnify have their own.
+    static let drawGroups = [["rect", "oval"], ["arrow", "line"], ["pen"], ["loupe"]]
+    var drawGroup: Int? { Self.drawGroups.firstIndex { $0.contains(id) } }
     var isDraw: Bool { Self.drawIDs.contains(id) }
 }
 
@@ -80,6 +83,10 @@ final class ToolStore {
     private init() {
         if let data = try? Data(contentsOf: url), let saved = try? JSONDecoder().decode([ToolDef].self, from: data), !saved.isEmpty {
             tools = saved
+            // Magnify's first symbol, a glass in a circle, is now the plain glass.
+            for i in tools.indices where tools[i].id == "loupe" && tools[i].symbol == "magnifyingglass.circle" {
+                tools[i].symbol = "magnifyingglass"
+            }
             addNewBuiltIns()
         } else {
             tools = ToolStore.builtIns
@@ -103,9 +110,9 @@ final class ToolStore {
         if changed { save() }
     }
 
-    /// The Draw tools in the order the Draw row shows them: Rect, Oval, Line, Arrow, Pen.
-    var drawTools: [ToolDef] {
-        tools.filter(\.isDraw).sorted { ToolDef.drawIDs.firstIndex(of: $0.id)! < ToolDef.drawIDs.firstIndex(of: $1.id)! }
+    /// The Draw tools of one palette tile, in order.
+    func drawTools(group g: Int) -> [ToolDef] {
+        ToolDef.drawGroups[g].compactMap { id in tools.first { $0.id == id } }
     }
 
     func replaceAll(_ newTools: [ToolDef]) {
@@ -155,7 +162,7 @@ final class ToolStore {
                 intent: "Look where this points.", shortcut: "a"),
         ToolDef(id: "oval", name: "Oval", symbol: "circle", shape: .oval, colorHex: "#E0261B", lineWidth: 3,
                 intent: "Look here.", shortcut: "o"),
-        ToolDef(id: "loupe", name: "Magnify", symbol: "magnifyingglass.circle", shape: .loupe, colorHex: "#E0261B", lineWidth: 3,
+        ToolDef(id: "loupe", name: "Magnify", symbol: "magnifyingglass", shape: .loupe, colorHex: "#E0261B", lineWidth: 3,
                 intent: "Look closely here: this circle shows the part under it magnified.", shortcut: "g"),
     ]
 }

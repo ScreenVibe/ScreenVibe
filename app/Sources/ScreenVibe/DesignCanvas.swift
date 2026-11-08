@@ -174,6 +174,39 @@ final class DesignCanvas: NSView, NSTextFieldDelegate {
 
     private func handles(_ r: CGRect) -> [CGPoint] { r.corners }
 
+    // MARK: button icons
+
+    private var iconPicker: IconPicker?
+
+    /// The selected button's icon badge, just above its top-left corner.
+    private var iconBadge: (id: String, at: CGPoint)? {
+        guard selection.count == 1, let id = selection.first, let it = item(id), it.kind == .button else { return nil }
+        return (id, CGPoint(x: it.frame.minX + 12, y: it.frame.minY - 16))
+    }
+
+    func openIconPicker() {
+        guard let b = iconBadge, let it = item(b.id) else { return }
+        let size = IconPicker.size
+        var o = CGPoint(x: b.at.x - 11, y: b.at.y + 15)
+        o.x = min(max(visibleRect.minX + 6, o.x), visibleRect.maxX - size.width - 6)
+        let picker = IconPicker(at: o, current: it.icon) { [weak self] icon in
+            guard let self, let i = self.design.items.firstIndex(where: { $0.id == b.id }) else { return }
+            self.pushUndo()
+            self.design.items[i].icon = icon
+            self.iconPicker = nil
+            self.changed()
+        }
+        addSubview(picker)
+        iconPicker = picker
+    }
+
+    private func closeIconPicker() -> Bool {
+        guard let p = iconPicker else { return false }
+        p.removeFromSuperview()
+        iconPicker = nil
+        return true
+    }
+
     override func mouseMoved(with event: NSEvent) {
         guard tool == .arrow else { if hover != nil { hover = nil; needsDisplay = true }; return }
         let h = item(at: point(event))?.id
@@ -184,6 +217,11 @@ final class DesignCanvas: NSView, NSTextFieldDelegate {
         let p = point(event)
         commitEdit()
         window?.makeFirstResponder(self)
+        if closeIconPicker() { return }
+        if tool == .select, let b = iconBadge, hypot(b.at.x - p.x, b.at.y - p.y) < 11 {
+            openIconPicker()
+            return
+        }
         switch tool {
         case .arrow:
             if let it = item(at: p) { drag = .linking(from: it.id, to: p) }
@@ -444,6 +482,7 @@ final class DesignCanvas: NSView, NSTextFieldDelegate {
                 }
             }
         }
+        if let b = iconBadge { LeapIcons.drawBadge(at: b.at, icon: item(b.id)?.icon) }
         if let id = selectedLink, let l = design.links.first(where: { $0.id == id }), let a = item(l.from), let b = item(l.to) {
             let pts = DesignDrawing.route(from: a.frame, to: b.frame)
             let p = NSBezierPath()
@@ -492,6 +531,7 @@ final class DesignCanvas: NSView, NSTextFieldDelegate {
         switch event.keyCode {
         case 51, 117: deleteSelection(); return
         case 53:
+            if closeIconPicker() { return }
             if tool != .select { tool = .select } else { selection = []; selectedLink = nil; needsDisplay = true }
             return
         case 123, 124, 125, 126:

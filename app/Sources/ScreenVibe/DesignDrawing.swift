@@ -193,7 +193,17 @@ enum DesignDrawing {
             if let tr = titleRect(it) { say(title, in: tr, font: boxFont, color: t.text) }
         case .button:
             rounded(f, min(7, f.height / 3), fill: t.control, stroke: t.border)
-            say(title, in: f.insetBy(dx: 8, dy: 0), font: font, color: t.text, align: .center)
+            if let icon = it.icon, let img = LeapIcons.image(icon, small: true) {
+                // The small LEAP icon left of the words, the two centered together.
+                let a: [NSAttributedString.Key: Any] = [.font: font]
+                let gap: CGFloat = title.isEmpty ? 0 : 5
+                let tw = min(max(0, f.width - 16 - img.size.width - gap), ceil((title as NSString).size(withAttributes: a).width))
+                let x0 = f.midX - (img.size.width + gap + tw) / 2
+                LeapIcons.draw(icon, small: true, centeredAt: CGPoint(x: x0 + img.size.width / 2, y: f.midY))
+                if !title.isEmpty { say(title, in: CGRect(x: x0 + img.size.width + gap, y: f.minY, width: tw + 1, height: f.height), font: font, color: t.text) }
+            } else {
+                say(title, in: f.insetBy(dx: 8, dy: 0), font: font, color: t.text, align: .center)
+            }
         case .popup:
             rounded(f, min(6, f.height / 3), fill: t.control, stroke: t.border)
             if hide != "choices" { say(it.choices.first ?? "", in: CGRect(x: f.minX + 9, y: f.minY, width: f.width - 30, height: f.height), font: font, color: t.text) }

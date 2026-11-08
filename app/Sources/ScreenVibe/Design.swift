@@ -89,6 +89,7 @@ struct DesignItem: Codable, Identifiable, Equatable {
     var parent: String?     // the window or box it sits in
     var image: String?      // a picture's file in the design's folder
     var across: Bool?       // radio buttons side by side, not stacked
+    var icon: String?       // a button's LEAP icon (LeapIcons)
 
     /// What a new item starts with.
     static func new(_ kind: ItemKind, at r: CGRect, size: ControlSize, windowType: WindowType) -> DesignItem {

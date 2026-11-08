@@ -35,6 +35,8 @@ struct Mark {
     var label = ""                    // a popup's title, drawn left of it
     var checked = false               // a checkbox drawn checked
     var zoom: CGFloat = 2             // a magnifying circle's zoom
+    var spot: CGPoint?                // the middle of the spot it enlarges; nil: right under it
+    var icon: String?                 // a button's LEAP icon (LeapIcons)
     var targetSize: CGSize?           // where a box+arrow points, once sized on its own; else the source's size
     var paint: Swatch?                // a color picked from the palette, in place of the tool's
 
@@ -80,6 +82,9 @@ struct Mark {
 
     var isBoxArrow: Bool { tool?.shape == .boxArrow }
 
+    /// The Button tool's mark, which can carry a LEAP icon.
+    var isButton: Bool { tool?.id == "button" }
+
     /// Tools that ask for words when drawn (Wording, Button, Note…); the others carry only a note.
     var isDraw: Bool { tool?.isDraw == true }
 
@@ -91,6 +96,7 @@ struct Mark {
     func hit(_ p: CGPoint) -> Bool {
         if MarkDrawing.part(of: self, at: p) != nil { return true }
         if case .tool(let t) = kind, t.shape == .boxArrow, target.insetBy(dx: -4, dy: -4).contains(p) { return true }
+        if case .tool(let t) = kind, t.shape == .loupe, MarkDrawing.onSpot(self, p) { return true }
         if case .tool(let t) = kind, t.shape.isLine {
             // Near the line itself, not anywhere in the box around a slanted one.
             let dx = end.x - start.x, dy = end.y - start.y, len2 = dx * dx + dy * dy
@@ -138,6 +144,7 @@ enum MarkDrawing {
         for (i, m) in marks.enumerated() {
             tag(i + 1, at: tagPoint(m), color: m.color)
             if badges { badge(at: badgePoint(m), filled: !m.extra.isEmpty) }
+            if badges, m.isButton { LeapIcons.drawBadge(at: iconBadgePoint(m), icon: m.icon) }
             if selected == i { handles(m) }
         }
     }
@@ -146,6 +153,12 @@ enum MarkDrawing {
     static func badgePoint(_ m: Mark) -> CGPoint {
         let a = m.area
         return CGPoint(x: a.maxX, y: a.minY)
+    }
+
+    /// A button's icon badge, on its top edge just right of the number.
+    static func iconBadgePoint(_ m: Mark) -> CGPoint {
+        let a = m.area
+        return CGPoint(x: a.minX + 30, y: a.minY)
     }
 
     static func badge(at p: CGPoint, filled: Bool) {
@@ -422,6 +435,10 @@ enum MarkDrawing {
     }
 
     private static func drawWords(_ m: Mark, tool t: ToolDef) {
+        if m.isButton, let icon = m.icon {
+            buttonWithIcon(m, icon: icon)
+            return
+        }
         guard !m.text.isEmpty else { return }
         if t.id == "wording" {
             plainText(m.text, in: m.rect, color: m.color)
@@ -443,6 +460,22 @@ enum MarkDrawing {
         } else {
             bubble("“\(m.text)”", at: CGPoint(x: m.rect.minX, y: m.rect.maxY + 6), color: m.color, above: m.rect.minY - 6)
         }
+    }
+
+    /// A button's icon left of its words, the two centered together on one line (the icon alone without words).
+    private static func buttonWithIcon(_ m: Mark, icon: String) {
+        let a: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 14, weight: .medium),
+                                                .foregroundColor: m.color.isLight ? NSColor.black : m.color.blended(withFraction: 0.3, of: .black)!]
+        let words = m.text.replacingOccurrences(of: "\n", with: " ") as NSString
+        let iconW = LeapIcons.image(icon)?.size.width ?? 24, gap: CGFloat = words.length == 0 ? 0 : 7
+        let room = max(0, m.rect.width - 20 - iconW - gap)
+        let tw = min(room, ceil(words.size(withAttributes: a).width))
+        let x0 = m.rect.midX - (iconW + gap + tw) / 2
+        LeapIcons.draw(icon, centeredAt: CGPoint(x: x0 + iconW / 2, y: m.rect.midY))
+        guard words.length > 0 else { return }
+        let h = ceil(words.size(withAttributes: a).height)
+        words.draw(with: CGRect(x: x0 + iconW + gap, y: m.rect.midY - h / 2, width: tw, height: h),
+                   options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine], attributes: a)
     }
 
     /// Wording's new words, as plain text in the box: as big as the box's height allows, with a light halo to read on anything.
@@ -508,6 +541,19 @@ enum MarkDrawing {
     /// The magnifying circle: as wide as the drawn box's short side, in its middle.
     static func loupeCircle(_ m: Mark) -> CGRect { circle(in: m.rect) }
 
+    /// The small circle on the spot it enlarges: the big one's size divided by the zoom.
+    static func spotCircle(_ m: Mark) -> CGRect {
+        let c = loupeCircle(m), r = c.width / 2 / max(1, m.zoom)
+        let p = m.spot ?? CGPoint(x: c.midX, y: c.midY)
+        return CGRect(x: p.x - r, y: p.y - r, width: 2 * r, height: 2 * r)
+    }
+
+    /// On the small circle, outside the big one.
+    static func onSpot(_ m: Mark, _ p: CGPoint) -> Bool {
+        let s = spotCircle(m), c = loupeCircle(m)
+        return hypot(p.x - s.midX, p.y - s.midY) < s.width / 2 + 5 && hypot(p.x - c.midX, p.y - c.midY) > c.width / 2
+    }
+
     /// The dot on the circle's rim that changes the zoom.
     static func zoomHandle(_ m: Mark) -> CGPoint {
         let c = loupeCircle(m), r = c.width / 2
@@ -515,7 +561,20 @@ enum MarkDrawing {
     }
 
     private static func loupe(_ m: Mark, color: NSColor, width: Double) {
-        let c = loupeCircle(m)
+        let c = loupeCircle(m), s = spotCircle(m)
+        let rc = c.width / 2, rs = s.width / 2
+        let dx = c.midX - s.midX, dy = c.midY - s.midY, d = hypot(dx, dy)
+        // The small circle and the two lines that join it to the big one, as in Preview.
+        if d > rc - rs + 2 {
+            let a = atan2(dy, dx), b = acos(max(-1, min(1, (rs - rc) / d)))
+            let lines = NSBezierPath()
+            for t in [a + b, a - b] {
+                lines.move(to: CGPoint(x: s.midX + rs * cos(t), y: s.midY + rs * sin(t)))
+                lines.line(to: CGPoint(x: c.midX + rc * cos(t), y: c.midY + rc * sin(t)))
+            }
+            stroke(lines, color: color, width: width, dashed: false)
+            stroke(NSBezierPath(ovalIn: s), color: color, width: width, dashed: false)
+        }
         let path = NSBezierPath(ovalIn: c)
         NSGraphicsContext.saveGraphicsState()
         let sh = NSShadow()
@@ -527,9 +586,8 @@ enum MarkDrawing {
         path.fill()
         NSGraphicsContext.restoreGraphicsState()
         if let b = backdrop {
-            let z = max(1, m.zoom), r = c.width / 2 / z
-            let src = CGRect(x: (c.midX - r - b.origin.x) * b.scale, y: (c.midY - r - b.origin.y) * b.scale,
-                             width: 2 * r * b.scale, height: 2 * r * b.scale).integral
+            let src = CGRect(x: (s.minX - b.origin.x) * b.scale, y: (s.minY - b.origin.y) * b.scale,
+                             width: s.width * b.scale, height: s.height * b.scale).integral
             if let piece = b.image.cropping(to: src) {
                 NSGraphicsContext.saveGraphicsState()
                 path.addClip()

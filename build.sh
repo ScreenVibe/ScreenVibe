@@ -16,6 +16,7 @@ mkdir -p "$APP/Contents/MacOS"
 cp .build/release/ScreenVibe "$APP/Contents/MacOS/ScreenVibe"
 mkdir -p "$APP/Contents/Resources"
 cp AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
+cp -R Icons "$APP/Contents/Resources/Icons"   # the LEAP icons a Button can carry
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
